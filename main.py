@@ -172,8 +172,24 @@ def control_chart(data,windows):
     mean_data = np.mean(data_new,axis=1)
 
 
+def filter_blips():
+    for key in RobData:
+        xtemp = RobData[key]['Robot X']
+        filter_idx = np.where(xtemp > 500)
+
+        RobData[key]['Robot X'] = np.delete(xtemp, filter_idx)
+        RobData[key]['Robot Y'] = np.delete(RobData[key]['Robot Y'], filter_idx)
+        RobData[key]['Robot Z'] = np.delete(RobData[key]['Robot Z'], filter_idx)
+        RobData[key]['Time'] = np.delete(RobData[key]['Time'], filter_idx)
+
+        WeldData[key]['Welding Voltage'] = np.delete(WeldData[key]['Welding Voltage'], filter_idx)
+        WeldData[key]['Welding Current'] = np.delete(WeldData[key]['Welding Current'], filter_idx)
+        WeldData[key]['Wire Feed Speed'] = np.delete(WeldData[key]['Wire Feed Speed'], filter_idx)
+        WeldData[key]['Time'] = np.delete(WeldData[key]['Time'], filter_idx)
+
+
 #Main Program
-path = 'C:\\Users\\emiramon\\Documents\\Data\\Dataset 2\\'
+path = 'C:\\Users\\emiramon\\Documents\\Data\\Dataset 3\\'
 units_ts = {'Welding Voltage': '(V)', 'Welding Current': '(A)', 'Wire Feed Speed': '(in/min)', 'Travel Speed': '(in/min)'}
 unitsChar = {'Bead Width': '(mm)','Bead Height': '(mm)', 'Ra': '(um)','Rz':'(um)','Bead Height Standard Deviation': '(mm)'}
 
@@ -193,7 +209,7 @@ extension = ".csv"
 
 Beads = {}
 for i in range(1, NumPts + 1):
-    data = pd.read_csv(path+'Profiles\\' + file + str(i) + extension)
+    data = pd.read_csv(path+'Height Profiles\\' + file + str(i) + extension)
     X = data["X(mm)"].tolist()
     Z = data["Z(mm)"].tolist()
     temp = du.BeadHeight(X, Z)
@@ -212,48 +228,29 @@ for key in Beads:
 ###################################################################
 #Get Bead characterization metrics
 ###################################################################
-
-
-Characterization = pd.read_csv(path+'Data_Summary.csv')
+Characterization = pd.read_csv(path+'Characterization.csv')
 Characterization['Bead Height Standard Deviation'] = Stdevs
-#Porosity = Characterization['Porosity']
-
-# Corrections = {}
-# Corrections = pd.DataFrame(Corrections)
-# Corrections['Arc Correction'] = Characterization['Arc Correction']
-# Corrections['Dynamic Correction'] = Characterization['Dynamic Correction']
-# Corrections = Corrections.drop(0)
-
+Characterization.to_csv(path+'Characterization.csv', index=False)
 # Characterization = Characterization.drop(['Bead','Dynamic Correction','Arc Correction','Sa'], axis=1)
-Characterization = Characterization.drop(['Bead','Porosity'], axis=1)
+Characterization = Characterization.drop(['Bead'], axis=1)
+Settings = pd.read_csv(path+ 'Process Settings.csv')
 ##################################################################
 # Extract from TDMS
 ##################################################################
 
 path2 = path+'Bead'
-RobData, WeldData = du.extract_tdms_data(path2, NumPts)
+RobData, WeldData = du.extract_tdms_wlem(path2, NumPts)
 IR_profiles =du.extract_IR_profiles(path + 'IR Data\\Line Profiles\\',NumPts)
-
-for key in RobData:
-    xtemp = RobData[key]['Robot X']
-    filter_idx = np.where(xtemp > 500)
-
-    RobData[key]['Robot X'] = np.delete(xtemp,filter_idx)
-    RobData[key]['Robot Y'] = np.delete(RobData[key]['Robot Y'],filter_idx)
-    RobData[key]['Robot Z'] = np.delete(RobData[key]['Robot Z'],filter_idx)
-    RobData[key]['Time'] = np.delete(RobData[key]['Time'],filter_idx)
-
-    WeldData[key]['Welding Voltage'] = np.delete(WeldData[key]['Welding Voltage'], filter_idx)
-    WeldData[key]['Welding Current'] = np.delete(WeldData[key]['Welding Current'], filter_idx)
-    WeldData[key]['Wire Feed Speed'] = np.delete(WeldData[key]['Wire Feed Speed'], filter_idx)
-    WeldData[key]['Time'] = np.delete(WeldData[key]['Time'], filter_idx)
-
 
 RobData = calculate_speed(RobData)
 
 for key in WeldData:
     WeldData[key]['Travel Speed'] = RobData[key]['Travel Speed']
 
+basetemp = []
+for key in IR_profiles:
+    temp_ir = IR_profiles[key]
+    basetemp.append(np.mean(temp_ir))
 
 #################################
 # Get Audio Features
@@ -268,7 +265,7 @@ AudioFrame = {}
 sr = SR['Bead1']
 for key in Audio:
     dfkey = key + ' features'
-    AudioFrame[dfkey] = af.extract_basic_features(Audio[key], sr)
+    AudioFrame[dfkey] = af.extract_basic_features(Audio[key], 48000)
 
 ############################################
 # Create data frame
@@ -276,12 +273,14 @@ for key in Audio:
 
 WeldAvg = get_averages(WeldData)
 X = create_dataframe(WeldAvg, AudioFrame)
+X["Base Temperature"] = basetemp
+
 
 # plotting.parameter_correlations(X,Characterization,Xunits,unitsChar)
 ######################################
 #Eliminate Highly Correlated Features
 #####################################
-
+#
 # fig_corr = plt.figure()
 # corr = X.corr()
 # plt.subplots(figsize=(30,25))
@@ -309,9 +308,57 @@ X = create_dataframe(WeldAvg, AudioFrame)
 ##Random Forest Model ###
 ############################
 
-# rf.regression_RFE(Characterization, X, unitsChar)
+# Y = Characterization['Porosity']
+#
+# por_idx = [i for i in range(len(Y)) if Y[i] == 1]
+# X = X.drop(por_idx)
 
-plotting.color_correlation(X,Characterization, Xunits, unitsChar)
+# Characterization = Characterization.drop(por_idx)
+# Characterization = Characterization.drop(['Porosity','Bead Width', 'Bead Height'], axis = 1)
+# rf.regression_noRFE(Characterization, X, unitsChar)
+
+
+plt.ioff()
+
+
+def spectra_allbeads(welddata, audio, cut_freq):
+
+    cwd = os.getcwd()
+    new_path = cwd + '\\Dataset 3\\Frequency Plots '
+
+    frequency_table = pd.DataFrame(columns=['Bead', 'Audio Max Frequency', 'Voltage Max Frequency', 'Current Max Frequency'])
+    audio_maxfreq = []
+    volt_maxfreq = []
+    curr_maxfreq = []
+
+    try:
+        os.mkdir(new_path)
+    except:
+        os.chdir(new_path)
+
+    for i in range(1, NumPts + 1):
+        Bead = 'Bead' + str(i)
+        volt_plot, volt_freq, volt_mag = plotting.plot_data_spectra(welddata, Bead, 'Welding Voltage', cut_freq)
+        curr_plot, curr_freq, curr_mag = plotting.plot_data_spectra(welddata, Bead, 'Welding Current', cut_freq)
+        audio_plot, audio_freq, audio_mag = af.plot_audio_spectra(audio, 48000, Bead, cut_freq)
+
+        audio_maxfreq_temp = audio_freq[np.argmax(audio_mag)]
+        volt_maxfreq_temp = volt_freq[np.argmax(volt_mag)]
+        curr_maxfreq_temp = curr_freq[np.argmax(curr_mag)]
+        audio_maxfreq.append(audio_maxfreq_temp)
+        volt_maxfreq.append(volt_maxfreq_temp)
+        curr_maxfreq.append(curr_maxfreq_temp)
+
+        audio_plot.savefig('Audio Frequency Plot Bead' + str(i) + '.png')
+        volt_plot.savefig('Voltage Frequency Plot Bead' + str(i) + '.png')
+        curr_plot.savefig('Current Frequency Plot Bead' + str(i) + '.png')
+
+    frequency_table['Bead'] = np.arange(1, NumPts + 1)
+    frequency_table['Audio Max Frequency'] = audio_maxfreq
+    frequency_table['Voltage Max Frequency'] = volt_maxfreq
+    frequency_table['Current Max Frequency'] = curr_maxfreq
+
+    frequency_table.to_csv('Max Frequencies.csv', index=False)
 
 
 

@@ -41,15 +41,18 @@ def extract_tdms_data(path,NumPts):
 
     return AllRobData, AllWeldData
 
+
 def extract_tdms_wlem(path,NumPts):
 
     AllRobData = {}
     AllWeldData = {}
+    AllLEMData ={}
 
     for i in range(1, NumPts+1):
 
         TempRobData = {}
         TempWeldData = {}
+        TempLEMData = {}
 
         if i < 10:
             beadnumstr = "0" + str(i)
@@ -66,23 +69,43 @@ def extract_tdms_wlem(path,NumPts):
             TempRobData[channel.name] = channel[:]
 
         for channel in LEMGroup.channels():
-            TempWeldData[channel.name] = channel[:]
+            TempLEMData[channel.name] = channel[:]
 
         for channel in WeldGroup.channels():
             TempWeldData[channel.name] = channel[:]
 
+        LEMtime = get_LEMtime(TempWeldData)
+        TempWeldData['Time'] = LEMtime
+
         AllRobData["Bead" + str(i)] = TempRobData
         AllWeldData["Bead" + str(i)] = TempWeldData
+        AllLEMData["Bead" + str(i)] = TempLEMData
+
+    return AllRobData, AllWeldData, AllLEMData
 
 
-    return AllRobData, AllWeldData
+def get_LEMtime(data):
+
+    sample_rate = 20000
+
+    volt_temp = data['Welding Voltage']
+    n_samples = len(volt_temp)
+
+    dt = n_samples/sample_rate
+
+    time = []
+
+    for i in range(0,n_samples):
+        time.append(dt*(i+1))
+
+    return time
 
 
 def extract_IR_profiles(path,num):
 
     IR_profiles = {}
 
-    for i in range(1,num):
+    for i in range(1,num+1):
 
         if i < 10:
             beadnumstr = "0" + str(i)
@@ -91,7 +114,9 @@ def extract_IR_profiles(path,num):
 
         filename = 'Bead' + beadnumstr + '_basetemp'
 
-        IR_profiles['Bead'+str(i)] = np.genfromtxt(path+filename+'.csv', delimiter = ',')
+        temp_df = pd.read_csv(path+filename+'.csv')
+
+        IR_profiles['Bead'+str(i)] = temp_df['Bead' + beadnumstr + '.seq:Line 1 [C]:mean:vert'].values
 
     return IR_profiles
 
@@ -109,4 +134,26 @@ def profile_trim(bead):
     end = endpoints[len(endpoints) - 1]
     bead.z = z[start:end]
     bead.x = bead.x[start:end]
+    return bead
+
+def profile_trim(bead):
+
+    z = bead.z
+    x = bead.x
+
+    x = np.array(x)
+    z = np.array(z)
+    endpoints = []
+
+    start_idx= np.where(x < 12.7 )
+    end_idx = np.where(x > 87.3)
+
+    filter_idx = np.concatenate((start_idx,end_idx), axis = None)
+
+    z = np.delete(z, [filter_idx])
+    x = np.delete(x, [filter_idx])
+
+    bead.z = z
+    bead.x = x
+
     return bead

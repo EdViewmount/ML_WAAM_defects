@@ -32,7 +32,7 @@ def regression_noRFE(Characterization, X, unitsChar):
         predictions = cross_val_predict(regressor, X, Y, cv=cv, n_jobs=-1)
 
         print(metric)
-        print('R2')
+        print('MAE')
         print(n_scores)
         print('Average:')
         print(n_scores.mean())
@@ -135,8 +135,8 @@ def regression_RFE(Characterization, X, unitsChar):
             comp_plot = plt.figure()
             plt.scatter(y_true, y_pred)
             plt.plot(line, line)
-            plt.xlabel('Predicted (mm)' + unitsChar[metric])
-            plt.ylabel('Measured (mm)' + unitsChar[metric])
+            plt.xlabel('Measured' + unitsChar[metric])
+            plt.ylabel('Predicted' + unitsChar[metric])
             comp_plot.savefig(new_path + '\\CompPlot_' + file_suffix + '.png')
 
             importances_df = pd.DataFrame(columns=['Feature', 'Importance'])
@@ -190,7 +190,7 @@ def classification_noRFE(Characterization, X, key):
     print(predictions)
 
 
-def classification_RFE(Y, X, metric):
+def classification_RFE(X, Y, metric):
     cwd = os.getcwd()
 
     try:
@@ -201,9 +201,6 @@ def classification_RFE(Y, X, metric):
 
 
     X_new = X
-
-    Y_range = np.amax(Y) - np.amin(Y)
-    print(Y_range)
     loo = LeaveOneOut()
     loo.get_n_splits(X_new)
 

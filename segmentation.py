@@ -1,25 +1,42 @@
 import numpy as np
 import pandas as pd
-from math import floor
-
-import librosa
+from math import floor, ceil
+import scipy as sc
 
 import unittest
 from numpy.testing import assert_array_almost_equal,             assert_almost_equal, assert_equal
+
+import audio_features as af
+import data_processing as dp
 import warnings
 
+
 class Segment:
+
+    X = pd.DataFrame()
+
     def __init__(self, data, bead_num, seg_num):
         self.data = data
         self.predictions = 0
         self.bead_num = bead_num
         self.seg_num = seg_num
 
+    def assign_predictions(self,predictions):
+        idx = self.seg_num
+        seg_pred = predictions[idx]
+        self.predictions = seg_pred
 
-def segment_axis(a, length, overlap=0, axis=None, end='cut', endvalue=0):
+
+def segment_axis(a, length, percent_overlap=0, axis=None, end='cut', endvalue=0):
+    """Function takes in 1D array of data and converts it into frames of overlapping windows.
+    The 1D array is converted to an ndarray where the rows correspond to one window of data. The overlap
+    is expressed in terms of percent overlap (percent of window length)"""
+
     if axis is None:
         a = np.ravel(a)  # may copy
         axis = 0
+
+    overlap = ceil(length * percent_overlap)
 
     l = a.shape[axis]
 
@@ -75,48 +92,26 @@ def segment_axis(a, length, overlap=0, axis=None, end='cut', endvalue=0):
 
 
 def calculate_winlength(L, overlap, num_windows):
-    lw = floor((L + num_windows * overlap - overlap) / num_windows)
+    lw = floor(L/(num_windows - overlap*num_windows + overlap))
 
     return lw
 
 
-def calculate_winlength_audio(L, overlap, num_windows):
-    lw = floor((L + num_windows * overlap) / (num_windows + 1))
-
-    return lw
-
-
-def data_split(dict, lw, o):
+def data_split_stats(dict,overlap,num_windows):
+    """Splits all the 1d arrays of a data dictionary into an ndarray and calculates stats for each segment"""
     stats = {}
 
     for key in dict:
-        temp = dict[key]
-        temp = segment_axis(temp, lw, overlap=overlap, end="cut")
+        data = dict[key]
+        N = len(data)
+        lw = calculate_winlength(N, overlap, num_windows)
+        data = segment_axis(data, lw, percent_overlap = overlap, end="cut")
 
-        stats[key + ' Mean'] = np.mean(temp, axis=1)
-        stats[key + ' Std'] = np.std(temp, axis=1)
+        stats[key + ' Mean'] = np.mean(data, axis=1)
+        stats[key + ' Std'] = np.std(data, axis=1)
+        stats[key + ' Kurt'] = sc.stats.kurtosis(data,axis=1)
 
     return stats
-
-
-def store_segment_data(segmented_beads, AudioFrames, num_windows):
-    Segments = []
-    seg_num = 0
-
-    for key in segmented_beads:
-        bead_num = int(key[-1])
-        bead_data = segmented_beads[key]
-        audio_data = AudioFrames[key]
-        for i in range(0, num_windows):
-            segment_data = pd.DataFrame()
-            for key in bead_data:
-                temp = (bead_data[key][i])
-                segment_data[key] = [temp]
-            temp_audio = audio_data.iloc[[i]]
-            temp_audio.reset_index(drop=True, inplace=True)
-            segment_data = pd.concat([segment_data, temp_audio], axis=1)
-            Segments.append(Segment(segment_data, bead_num, seg_num))
-            seg_num += 1
 
 
 def assemble_df(Segments):
@@ -131,6 +126,82 @@ def assemble_df(Segments):
         i += 1
     return X
 
-def segment_data(LEMData,WeldData,num_windows):
 
-    return 1
+def output_array(BeadShapes,overlap,num_windows):
+
+    Y = []
+    for beadshape in BeadShapes:
+        Y.extend(beadshape.segment(overlap,num_windows,attribute = 'z',metric = 'Peak2Valley'))
+
+    return Y
+
+
+def store_segment_data(Beads, num_windows):
+    Segments = []
+    seg_num = 0
+
+    for bead in Beads:
+        bead_num = bead.number
+        bead_data = bead.allBeadStats
+        audio_data = bead.audioFrames
+        travelSpeed = bead.travelSpeed
+        baseTemp = bead.baseTemp
+
+        for i in range(1, num_windows-1):
+            segment_data = pd.DataFrame()
+            for key in bead_data:
+                temp = (bead_data[key][i])
+                segment_data[key] = [temp]
+            temp_audio = audio_data.iloc[[i]]
+            temp_audio.reset_index(drop=True, inplace=True)
+            segment_data = pd.concat([segment_data, temp_audio], axis=1)
+            segment_data['Travel Speed'] = travelSpeed
+            segment_data['Base Temperature'] = baseTemp
+            Segments.append(Segment(segment_data, bead_num, seg_num))
+            seg_num += 1
+
+    return Segments
+
+
+def segment_assemble(Beads, BeadShape,num_windows,percent_overlap):
+
+    for bead in Beads:
+        bead.segment(percent_overlap,num_windows)
+
+    Segments = store_segment_data(Beads, num_windows)
+
+    X = assemble_df(Segments)
+    Y = output_array(BeadShape,percent_overlap,num_windows)
+
+    return X, Y
+
+
+def prediction_assignment(Segments, Beads, predictions):
+    for segment in Segments:
+        segment.assign_predictions(predictions)
+
+    for segment in Segments:
+        bead_curr = segment.bead_num
+        Beads[bead_curr].predictions.append(segment.predictions)
+
+
+# def prediction_assignment(Segments,predictions):
+#     for segment in Segments:
+#         segment.assign_predictions(predictions)
+#
+#     Bead_preds = {}
+#     i = 1
+#     bead_prev = 0
+#     for segment in Segments:
+#         bead_curr = segment.bead_num
+#         if bead_curr > bead_prev: i = 1
+#
+#         if i == 1:
+#             Bead_preds['Bead' + str(bead_curr)] = []
+#             Bead_preds['Bead' + str(bead_curr)].append(segment.predictions)
+#         else:
+#             Bead_preds['Bead' + str(bead_curr)].append(segment.predictions)
+#
+#         i += 1
+#         bead_prev = bead_curr
+

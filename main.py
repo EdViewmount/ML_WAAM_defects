@@ -1,5 +1,3 @@
-import os
-from nptdms import TdmsFile
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -8,36 +6,23 @@ import seaborn as sns
 import plotting
 import audio_features as af
 import random_forests as rf
-import data_upload as du
+import data_processing as dp
+import segmentation as seg
+import neural_network as nn
+import global_model as gm
 
-
-def get_averages(dictionary):
-
-    dict_avg = {}
-
-    for outer_key in dictionary:
-
-        dict_avg[outer_key] = {}
-
-        for inner_key in dictionary[outer_key]:
-
-            if inner_key != 'Time':
-                x = dictionary[outer_key][inner_key]
-
-                dict_avg[outer_key][inner_key + ' Mean'] = [np.mean(x[np.isfinite(x)])]
-                dict_avg[outer_key][inner_key + ' Std'] = [np.std(x[np.isfinite(x)])]
-
-    return dict_avg
+from tkinter import *
+from tkinter import filedialog
 
 
 def difference(x):
     i=0
     diff=[]
 
-    for i in range(0,len(x),5):
+    for i in range(0,len(x),4):
 
-        if i < len(x) - 5:
-            diff.append(x[i + 5] - x[i])
+        if i < len(x) - 4:
+            diff.append(x[i + 4] - x[i])
     diff = np.array(diff)
 
     return diff
@@ -90,282 +75,134 @@ def calculate_speed(RobotData):
     return RobotData
 
 
-def create_dataframe(WeldAvg, AudioFrames):
+def on_click(text):
 
-    i = 1
-    for key in WeldAvg:
+    #mode.set(text)
 
-        dtemp = WeldAvg[key]
-
-        if i == 1:
-            DF = pd.DataFrame.from_dict(dtemp, orient='columns')
-        else:
-            df_temp = pd.DataFrame.from_dict(dtemp, orient='columns')
-            DF = pd.concat([DF, df_temp], axis=0, ignore_index=True)
-
-        i = i + 1
-
-    DF = DF.drop(['Motor Current Mean','Motor Current Std','Travel Speed Std',], axis=1)
-
-    i = 1
-
-    for key in AudioFrames:
-        d = af.feature_averages(AudioFrames[key])
-        if i == 1:
-            audio_df = pd.DataFrame.from_dict(d, orient='columns')
-        else:
-            dftemp = pd.DataFrame.from_dict(d, orient='columns')
-            audio_df = pd.concat([audio_df, dftemp], ignore_index=True, axis=0)
-
-        i = i + 1
-
-
-    DF = pd.concat([DF, audio_df], axis=1)
-    DF = DF.drop(['Tempo Std', 'Tempo Skew', 'Tempo Kurt'], axis=1)
-
-    return DF
-
-
-def calculate_energy(Data,path):
-    i=1
-
-    Energy = {}
-    Energy = pd.DataFrame(Energy)
-    plt.figure()
-
-    for key in Data:
-
-        time = Data[key]['Time']
-        volt = Data[key]['Welding Voltage']
-        curr = Data[key]['Welding Current']
-        #wfs = Data[key]['Wire Feed Speed']
-        energy_per_in = (volt * curr) / (25* (25.4/60))
-
-        energy_temp = {}
-
-        energy_temp[key] = energy_per_in
-        energy_temp = pd.DataFrame.from_dict(energy_temp)
-
-
-        if i == 1:
-            Energy = energy_temp
-        else:
-            Energy = pd.concat([Energy, energy_temp],axis=1)
-        i=i+1
-
-        plt.plot(time,energy_per_in)
-        plt.xlabel('Time (s)')
-        plt.ylabel('Energy Input (J/mm)')
-
-        del energy_temp
-
-    plt.savefig(path + '\\Energy Input\\energy_input.png')
-    EnergyDF = pd.DataFrame.from_dict(Energy)
-    pd.DataFrame.to_csv(EnergyDF,path+'\\Energy Input\\Energy_Input.csv')
-    return Energy
-
-
-def control_chart(data,windows):
-    data_length = len(data)
-    window_length = data_length/windows
-    data_new = np.reshape(data,[-1,window_length])
-    mean_data = np.mean(data_new,axis=1)
-
-
-def filter_blips():
-    for key in RobData:
-        xtemp = RobData[key]['Robot X']
-        filter_idx = np.where(xtemp > 500)
-
-        RobData[key]['Robot X'] = np.delete(xtemp, filter_idx)
-        RobData[key]['Robot Y'] = np.delete(RobData[key]['Robot Y'], filter_idx)
-        RobData[key]['Robot Z'] = np.delete(RobData[key]['Robot Z'], filter_idx)
-        RobData[key]['Time'] = np.delete(RobData[key]['Time'], filter_idx)
-
-        WeldData[key]['Welding Voltage'] = np.delete(WeldData[key]['Welding Voltage'], filter_idx)
-        WeldData[key]['Welding Current'] = np.delete(WeldData[key]['Welding Current'], filter_idx)
-        WeldData[key]['Wire Feed Speed'] = np.delete(WeldData[key]['Wire Feed Speed'], filter_idx)
-        WeldData[key]['Time'] = np.delete(WeldData[key]['Time'], filter_idx)
-
-
-#Main Program
-path = 'C:\\Users\\emiramon\\Documents\\Data\\Dataset 3\\'
-units_ts = {'Welding Voltage': '(V)', 'Welding Current': '(A)', 'Wire Feed Speed': '(in/min)', 'Travel Speed': '(in/min)'}
-unitsChar = {'Bead Width': '(mm)','Bead Height': '(mm)', 'Ra': '(um)','Rz':'(um)','Bead Height Standard Deviation': '(mm)'}
-
-Xunits = pd.read_csv(path+'Xunits.csv')
-
+    return 0;
 
 # def main():
 
-NumPts = 46
+#Main Program
+
+path = filedialog.askdirectory()
+
+units_ts = {'Welding Voltage': '(V)', 'Welding Current': '(A)', 'Wire Feed Speed': '(in/min)', 'Travel Speed': '(in/min)'}
+unitsChar = {'Bead Width': '(mm)','Bead Height': '(mm)', 'Ra': '(um)','Rz':'(um)','Bead Height Standard Deviation': '(mm)'}
+NumPts = 45
+Xunits = pd.read_csv(path+'\\Xunits.csv')
+
 ##############################################
-# Compute bead height standard deviation
+# Bead Shape Profiles
 ###########################################
 
-
-file = "Height Profile Bead "
-extension = ".csv"
-
-Beads = {}
+hfilename = "Height Profile Bead "
+wfilename = " Width Profile.csv"
+BeadShapes = []
 for i in range(1, NumPts + 1):
-    data = pd.read_csv(path+'Height Profiles\\' + file + str(i) + extension)
-    X = data["X(mm)"].tolist()
-    Z = data["Z(mm)"].tolist()
-    temp = du.BeadHeight(X, Z)
-    Beads["Bead" + str(i)] = temp
 
-for key in Beads:
-    Beads[key] = du.profile_trim(Beads[key])
+    dataHeight = pd.read_csv(path+'\\Height Profiles\\' + hfilename + str(i) + '.csv')
+    # dataWidth = pd.read_csv(path + '\\Width Profiles\\Bead' + str(i) + wfilename)
+    # L = dataWidth['Length'].tolist()
+    # Width = dataWidth['Width'].tolist()
+    # CtrLineDeviation = dataWidth['CenterLineDeviation']
+    X = dataHeight["X(mm)"].tolist()
+    Z = dataHeight["Z(mm)"].tolist()
+    del dataHeight
+    tempBead = dp.BeadShape(i,X,Z)
+    tempBead.profile_trim(path,i)
+    BeadShapes.append(tempBead)
+    del tempBead,X,Z
 
-Stdevs = []
+# mode = StringVar()
+# win = Tk()
+# b1= Button(win, text= "Plotting", command = on_click("Plotting")).pack()
+# b2= Button(win, text= "Modeling", command = on_click("Modeling")).pack()
 
-for key in Beads:
-    ztemp = np.array(Beads[key].z)
-    zstdev = np.std(ztemp[np.isfinite(ztemp)])
-    Stdevs.append(zstdev)
 
-###################################################################
-#Get Bead characterization metrics
-###################################################################
-Characterization = pd.read_csv(path+'Characterization.csv')
-Characterization['Bead Height Standard Deviation'] = Stdevs
-Characterization.to_csv(path+'Characterization.csv', index=False)
-# Characterization = Characterization.drop(['Bead','Dynamic Correction','Arc Correction','Sa'], axis=1)
-Characterization = Characterization.drop(['Bead'], axis=1)
-Settings = pd.read_csv(path+ 'Process Settings.csv')
 ##################################################################
 # Extract from TDMS
 ##################################################################
 
-path2 = path+'Bead'
-RobData, WeldData = du.extract_tdms_wlem(path2, NumPts)
-IR_profiles =du.extract_IR_profiles(path + 'IR Data\\Line Profiles\\',NumPts)
+#Extract settings from csv file
+Settings = pd.read_csv(path + '\\Settings.csv')
+#Extract time series data from tdms file
+Beads = dp.extract_tdms(path,NumPts)
+#Extract IR data from csv files
+Beads = dp.extract_IR_data(path,Beads,NumPts)
 
-RobData = calculate_speed(RobData)
+for bead in Beads:
+    i = bead.number
+    bead.add_settings(Settings.iloc[i-1,:])
+    #bead.filter_blips()
+    bead.remove_prepost_time()
 
-for key in WeldData:
-    WeldData[key]['Travel Speed'] = RobData[key]['Travel Speed']
-
-basetemp = []
-for key in IR_profiles:
-    temp_ir = IR_profiles[key]
-    basetemp.append(np.mean(temp_ir))
 
 #################################
 # Get Audio Features
 ######################################
 
-Audio, SR = af.file_extract(NumPts, path2)
+Beads = af.file_extract(NumPts,path,Beads)
+Beads = af.denoise_audio(Beads)
 
-#Denoise Audio
-af.denoise_audio(Audio)
+# ############################################
+# # Create data frame and output dictionary
+# ##########################################
 
-AudioFrame = {}
-sr = SR['Bead1']
-for key in Audio:
-    dfkey = key + ' features'
-    AudioFrame[dfkey] = af.extract_basic_features(Audio[key], 48000)
+# # X, Characterization = gm.structure_data(WeldData,LEMData, Beads, Audio, path)
 
-############################################
-# Create data frame
-##########################################
+#Remove problematic sample from data set
+Beads.pop(28)
+BeadShapes.pop(28)
+NumPts = NumPts - 1
+X,Y = seg.segment_assemble(Beads, BeadShapes, 10, 0.15)
+#X.drop(['Melt Pool Temperature Kurt','Melt Pool Temperature Std'],axis=1)
+# # plotting.plot_segmentXY(X,Y,'Welding Current Mean',Xunits)
 
-WeldAvg = get_averages(WeldData)
-X = create_dataframe(WeldAvg, AudioFrame)
-X["Base Temperature"] = basetemp
+# ######################################
+# #Eliminate Highly Correlated Features
+# #######################################
 
+fig_corr = plt.figure()
+corr = X.corr()
+plt.subplots(figsize=(30,25))
+sns.heatmap(corr)
+fig_corr.savefig('Correlation_Matrix.png')
 
-# plotting.parameter_correlations(X,Characterization,Xunits,unitsChar)
-######################################
-#Eliminate Highly Correlated Features
-#####################################
-#
-# fig_corr = plt.figure()
-# corr = X.corr()
-# plt.subplots(figsize=(30,25))
-# sns.heatmap(corr)
-# plt.show()
-# fig_corr.savefig('Correlation_Matrix.png')
-#
-# columns = np.full((corr.shape[0],), True, dtype=bool)
-# cols = X.columns.tolist()
-# # Remove one of every pair of columns that are 95% correlated
-# print("Dropping data points are 95% correlated to existing data:")
-# for i in range(corr.shape[0]):
-#     if i > 0 :
-#         for j in range(i+1, corr.shape[0]):
-#             if corr.iloc[i,j] >= 0.95:
-#                 if columns[i] and columns[j]:
-#                     print(str(cols[j]) + " " + str(j) + ": (95%+ correlated to " + str(cols[i]) + " " + str(i) + ")")
-#                     X = X.drop(str(cols[j]), axis = 1)
-#                     columns[j] = False
-#                 elif columns[j]:
-#                     columns[j] = True
+columns = np.full((corr.shape[0],), True, dtype=bool)
+cols = X.columns.tolist()
+# Remove one of every pair of columns that are 95% correlated
+print("Dropping data points are 95% correlated to existing data:")
+for i in range(corr.shape[0]):
+    if i > 0 :
+        for j in range(i+1, corr.shape[0]):
+            if corr.iloc[i,j] >= 0.95:
+                if columns[i] and columns[j]:
+                    print(str(cols[j]) + " " + str(j) + ": (95%+ correlated to " + str(cols[i]) + " " + str(i) + ")")
+                    X = X.drop(str(cols[j]), axis = 1)
+                    columns[j] = False
+                elif columns[j]:
+                    columns[j] = True
 
+# if mode == 'Plotting':
+#     v =  1
+# elif mode == 'Modeling':
+#     v = 2
 
 ############################
-##Random Forest Model ###
+##Machine Learning Model ###
 ############################
 
-# Y = Characterization['Porosity']
-#
-# por_idx = [i for i in range(len(Y)) if Y[i] == 1]
-# X = X.drop(por_idx)
+# # Y = Characterization['Porosity']
+# # por_idx = [i for i in range(len(Y)) if Y[i] == 1]
+# # X = X.drop(por_idx)
 
-# Characterization = Characterization.drop(por_idx)
-# Characterization = Characterization.drop(['Porosity','Bead Width', 'Bead Height'], axis = 1)
-# rf.regression_noRFE(Characterization, X, unitsChar)
+print('Model Initializing')
+#rf.regression_RFE(Y, X, unitsChar,'Bead Height')
+#nn.neuralNetwork(X,Y)
+nn.recurrentNeuralNetwork(X,Y,NumPts,8)
 
-
-plt.ioff()
-
-
-def spectra_allbeads(welddata, audio, cut_freq):
-
-    cwd = os.getcwd()
-    new_path = cwd + '\\Dataset 3\\Frequency Plots '
-
-    frequency_table = pd.DataFrame(columns=['Bead', 'Audio Max Frequency', 'Voltage Max Frequency', 'Current Max Frequency'])
-    audio_maxfreq = []
-    volt_maxfreq = []
-    curr_maxfreq = []
-
-    try:
-        os.mkdir(new_path)
-    except:
-        os.chdir(new_path)
-
-    for i in range(1, NumPts + 1):
-        Bead = 'Bead' + str(i)
-        volt_plot, volt_freq, volt_mag = plotting.plot_data_spectra(welddata, Bead, 'Welding Voltage', cut_freq)
-        curr_plot, curr_freq, curr_mag = plotting.plot_data_spectra(welddata, Bead, 'Welding Current', cut_freq)
-        audio_plot, audio_freq, audio_mag = af.plot_audio_spectra(audio, 48000, Bead, cut_freq)
-
-        audio_maxfreq_temp = audio_freq[np.argmax(audio_mag)]
-        volt_maxfreq_temp = volt_freq[np.argmax(volt_mag)]
-        curr_maxfreq_temp = curr_freq[np.argmax(curr_mag)]
-        audio_maxfreq.append(audio_maxfreq_temp)
-        volt_maxfreq.append(volt_maxfreq_temp)
-        curr_maxfreq.append(curr_maxfreq_temp)
-
-        audio_plot.savefig('Audio Frequency Plot Bead' + str(i) + '.png')
-        volt_plot.savefig('Voltage Frequency Plot Bead' + str(i) + '.png')
-        curr_plot.savefig('Current Frequency Plot Bead' + str(i) + '.png')
-
-    frequency_table['Bead'] = np.arange(1, NumPts + 1)
-    frequency_table['Audio Max Frequency'] = audio_maxfreq
-    frequency_table['Voltage Max Frequency'] = volt_maxfreq
-    frequency_table['Current Max Frequency'] = curr_maxfreq
-
-    frequency_table.to_csv('Max Frequencies.csv', index=False)
-
-
-
-
+# # # # if __name__ == "__main__":
+# # # #     print("Running")
+# # # #     main()
 # #
-# if __name__ == "__main__":
-#     print("Running")
-#     main()
-#
-

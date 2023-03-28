@@ -1,9 +1,9 @@
+import math
+
 import librosa
-import matplotlib
-import os
+import scipy as sc
 import numpy as np
 from math import floor
-
 import librosa.display
 import matplotlib.pyplot as plt,scipy
 import pandas as pd
@@ -11,20 +11,20 @@ import pandas as pd
 from skimage.restoration import denoise_wavelet
 
 
-def extract_basic_features(audio, sampling_rate = 48000, hop = 512, n_win = 2048) :
+def extract_basic_features(audio, sampling_rate = 48000, hop = 512, n_win = 2048):
 
     spectral_centroids = librosa.feature.spectral_centroid((audio-np.mean(audio)), sr=sampling_rate, n_fft=n_win, hop_length=hop, center = False)[0]
-    spectral_centroids = spectral_centroids[:-1]
     spectral_rolloff = librosa.feature.spectral_rolloff((audio-np.mean(audio)), sr=sampling_rate, n_fft=n_win, hop_length=hop, center = False)[0]
-    spectral_rolloff = spectral_rolloff[:-1]
     spectral_bandwidth = librosa.feature.spectral_bandwidth((audio-np.mean(audio)), sr=sampling_rate, n_fft=n_win, hop_length=hop, center = False)[0]
-    spectral_bandwidth = spectral_bandwidth[:-1]
     rms = librosa.feature.rms(audio, frame_length =n_win, hop_length=hop, center = False)[0]
-    rms = rms[:-1]
     zero_crossing = librosa.feature.zero_crossing_rate(audio, frame_length =n_win, hop_length=hop, center = False)[0]
-    zero_crossing = zero_crossing[:-1]
 
-    tempo = librosa.beat.tempo(audio, sr=sampling_rate, hop_length = hop)[0]
+    spec = np.abs(librosa.stft(audio, n_fft=n_win, hop_length=hop, center=False))
+    spec = librosa.amplitude_to_db(spec, ref=np.max)
+
+    onset = librosa.onset.onset_strength(audio, sr=sampling_rate, S=spec, hop_length=hop)
+
+    del spec, audio
 
     df = pd.DataFrame()
 
@@ -33,30 +33,51 @@ def extract_basic_features(audio, sampling_rate = 48000, hop = 512, n_win = 2048
     df['Spectral Rolloff'] = spectral_rolloff
     df['Root Mean Squared'] = rms
     df['Zero Crossing Rate'] = zero_crossing
-    df['Tempo'] = tempo
-
-    #harmonics = librosa.effects.hpss(analysis_samples)
-    #beat_track  = librosa.beat.beat_track(analysis_samples)
-
-
-    #df['Harmonics'] = harmonics
-    #df['Perpetual_Shock'] = perpetual_shock
+    df['Onset Strength'] = onset
 
     return df
 
-def trim_audio(x):
 
-    Endpoints=[]
-    for i in range(1, len(x)):
-        if x[i] > 0.01:
-            Endpoints.append(i)
+def extract_timeseries_features(audio,lw_audio,hop):
 
-    Endpoints=np.array(Endpoints)
-    start=Endpoints[1]
-    end=Endpoints[len(Endpoints)-1]
-    x=x[start:end]
+    audioWindows = librosa.util.frame(audio,lw_audio,hop)
+    audioAvgs = np.mean(audioWindows, axis=0)
+    audioVar = np.var(audioWindows,axis=0)
+    audioKurt = sc.stats.kurtosis(audioWindows, axis=0)
+    soundPressureLevel = sound_pressure(audio,150)
 
-    return x
+    audioFeat = pd.DataFrame()
+
+    audioFeat['Amplitude Mean'] = audioAvgs
+    audioFeat['Amplitude Variance'] = audioVar
+    audioFeat['Amplitude Kurtosis'] = audioKurt
+    audioFeat['Sound Pressure Level'] = soundPressureLevel
+
+    return audioFeat
+
+
+def sound_pressure(audioSample,sensitivity):
+    Pref = 20*10**-6 #Pa
+
+    soundPressureLevel = []
+
+    for row in audioSample:
+
+        soundPressure = audioSample/sensitivity
+        soundPressureLevel.append(20*math.log10(soundPressure.mean()/Pref))
+
+    return soundPressureLevel
+
+
+def clipEndAudio(audioex):
+    for i in range(-1, -len(audioex), -1):
+        if audioex[i] > 0.9:
+            endidx = i
+            break
+
+    audioex = audioex[0:endidx]
+
+    return audioex
 
 
 def fourier_transform(X):
@@ -65,8 +86,8 @@ def fourier_transform(X):
 
     return Xfft, X_mag
 
-def file_extract(NumPts,pathAudio):
-    Audio={}
+
+def file_extract(NumPts,pathAudio,Beads):
     SR={}
     for i in range(1,NumPts+1):
 
@@ -77,18 +98,44 @@ def file_extract(NumPts,pathAudio):
 
         key = "Bead"+str(i)
 
-        path = pathAudio+beadnumstr
+        path = pathAudio+'\\LabVIEW\\Bead' + beadnumstr
+
+        #Find all audio files in target directory
         files=librosa.util.find_files(path, ext='wav')
-        Audio[key],SR[key]=none=librosa.load(files[0])
+        tempAudio,SR=none=librosa.load(files[0])
 
-    return Audio, SR
+        # Remove the portion of the audio that recorded after the arc shut off
+        tempAudio = clipEndAudio(tempAudio)
+        Beads[i-1].add_audio(tempAudio,SR)
+        del tempAudio
+
+    return Beads
 
 
-def denoise_audio(Audio):
-    for key in Audio:
-        X = Audio[key]
-        X_denoise = denoise_wavelet(X, method='VisuShrink',mode='soft',wavelet_levels=3,wavelet='sym8',rescale_sigma='True')
-        Audio[key]=X_denoise
+def denoise_audio(Beads):
+
+    for bead in Beads:
+        X_denoise = denoise_wavelet(bead.audio, method='VisuShrink',mode='soft',wavelet_levels=3,wavelet='sym8',rescale_sigma='True')
+        bead.audio=X_denoise
+    return Beads
+
+
+def file_extract_layers(pathAudio):
+    Layers = []
+
+    files=librosa.util.find_files(pathAudio, ext='wav')
+
+    i=1
+    for filename in files:
+        key='Layer'+str(i)
+        sr='SR'+str(i)
+        tempAudio,SR=none=librosa.load(filename)
+        i=i+1
+        # Remove the portion of the audio that recorded after the arc shut off
+        tempAudio = clipEndAudio(tempAudio)
+        Layers[i - 1].add_audio(tempAudio, SR)
+
+    return Layers
 
 
 def feature_averages(X):
@@ -139,9 +186,6 @@ def plot_audio_spectra(Audio, sr, layer, cut_freq):
     # plt.ylabel('Power')
 
     return audio_plot, frequency, mag_spectrum[0:floor(N/2)]
-
-
-
 
 
 

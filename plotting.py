@@ -2,8 +2,31 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from math import floor
+import os
+from scipy import signal
 
 import audio_features as af
+
+from tkinter import *
+from tkinter import filedialog
+
+
+def plot_main():
+    plotMenu = Tk()
+    plotMenu.title('Plotting Menu')
+
+
+def plot_segmentXY(X,Y,input,units):
+
+    fig = plt.figure()
+
+    data = X[input]
+    plt.scatter(data,Y)
+    print(units[input])
+    plt.xlabel(input + ' (' + units[input][0] + ')')
+    plt.ylabel('Height Average (mm)')
+
+    fig.savefig('XY Plot' + input + '.png')
 
 
 def plot_timeseries(WeldData,key):
@@ -30,13 +53,6 @@ def plot_timeseries(WeldData,key):
     plt.show()
     # fig1.savefig('Time Series\\Time_Series_' + key + '.png')
 
-    # time = WeldData['Bead' + layer_num]['Time']
-    # fig2, ax1 = plt.subplots()
-    # ax1.set_xlabel('Time(s)')
-    # ax1.set_ylabel('Travel Speed (in/min')
-    # ax1.plot(time, WeldData['Bead' + layer_num]['Travel Speed'], color="blue")
-    #
-    # plt.show()
 
 
 def all_build_correlations(dict, units, time_series1, time_series2):
@@ -133,6 +149,47 @@ def parameter_correlations(X,Y, Xunit, Yunit):
                 plt.show()
 
                 i = i + 1
+
+
+def spectra_allbeads(welddata, audio, cut_freq, NumPts):
+    plt.ioff()
+
+    cwd = os.getcwd()
+    new_path = cwd + '\\Dataset 3\\Frequency Plots '
+
+    frequency_table = pd.DataFrame(columns=['Bead', 'Audio Max Frequency', 'Voltage Max Frequency', 'Current Max Frequency'])
+    audio_maxfreq = []
+    volt_maxfreq = []
+    curr_maxfreq = []
+
+    try:
+        os.mkdir(new_path)
+    except:
+        os.chdir(new_path)
+
+    for i in range(1, NumPts + 1):
+        Bead = 'Bead' + str(i)
+        volt_plot, volt_freq, volt_mag = plot_data_spectra(welddata, Bead, 'Welding Voltage', cut_freq)
+        curr_plot, curr_freq, curr_mag = plot_data_spectra(welddata, Bead, 'Welding Current', cut_freq)
+        audio_plot, audio_freq, audio_mag = af.plot_audio_spectra(audio, 22050, Bead, cut_freq)
+
+        audio_maxfreq_temp = audio_freq[np.argmax(audio_mag)]
+        volt_maxfreq_temp = volt_freq[np.argmax(volt_mag)]
+        curr_maxfreq_temp = curr_freq[np.argmax(curr_mag)]
+        audio_maxfreq.append(audio_maxfreq_temp)
+        volt_maxfreq.append(volt_maxfreq_temp)
+        curr_maxfreq.append(curr_maxfreq_temp)
+
+        audio_plot.savefig('Audio Frequency Plot Bead' + str(i) + '.png')
+        volt_plot.savefig('Voltage Frequency Plot Bead' + str(i) + '.png')
+        curr_plot.savefig('Current Frequency Plot Bead' + str(i) + '.png')
+
+    frequency_table['Bead'] = np.arange(1, NumPts + 1)
+    frequency_table['Audio Max Frequency'] = audio_maxfreq
+    frequency_table['Voltage Max Frequency'] = volt_maxfreq
+    frequency_table['Current Max Frequency'] = curr_maxfreq
+
+    frequency_table.to_csv('Max Frequencies.csv', index=False)
 
 
 def color_correlation(X,Y, settings, Xunit, Yunit):

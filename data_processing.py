@@ -4,21 +4,28 @@ import pandas as pd
 import math
 from math import floor
 import segmentation as seg
+import os
+import librosa
 
 import audio_features as af
 
 
 class BeadShape:
 
-    def __init__(self,beadNum, x,z):
+    def __init__(self,beadNum, x,Height,l,width):
         self.beadNum = beadNum
-        self.x = x
-        self.z = z
-        # self.l
-        # self.width
-        # self.centerLineDeviation
+        self.x = np.array(x)
+        self.Height = np.array(Height)
+        self.l = l
+        self.width = np.array(width)
+        self.centerLineDeviation = []
+        self.peaktoval = None
+        self.std = None
+        self.numWindows = None
+        self.overlap = None
+        self.xtrim = None
 
-    def profile_trim(self,path,beadNum,attributeX = 'x',attributeProfile = 'z'):
+    def profile_trim(self,path,beadNum,attributeX = 'x',attributeProfile = 'Height'):
 
         x = np.array(getattr(self,attributeX))
         z = np.array(getattr(self,attributeProfile))
@@ -35,18 +42,18 @@ class BeadShape:
         z = np.delete(z, [filter_idx])
         x = np.delete(x, [filter_idx])
 
+        x = x - min(x)
+
         setattr(self,attributeX,x)
         setattr(self,attributeProfile,z)
 
-    def segment(self,overlap,num_windows,attribute = 'z',metric = 'Mean'):
+    def segment(self,overlap,num_windows,attribute = 'Height',metric = 'Mean'):
         temp = getattr(self,attribute)
         temp = temp[np.isfinite(temp)]
-        temp = np.array(temp)
         L = temp.size
         lw = seg.calculate_winlength(L, overlap, num_windows)
         windowedProfile = seg.segment_axis(temp, lw, percent_overlap=overlap, end="cut")
-        windowedProfile = np.delete(windowedProfile, [0, num_windows - 1], 0)
-        print(windowedProfile.shape)
+        windowedProfile = np.delete(windowedProfile, num_windows - 1, 0)
 
         setattr(self,attribute+ ' Windows',windowedProfile)
 
@@ -57,7 +64,7 @@ class BeadShape:
 
             y = self.local_stdev(attribute+ ' Windows')
 
-        elif metric == 'Peak2Valley':
+        elif metric == 'Peak to Valley':
 
             y = self.peak_to_valley(attribute+ ' Windows')
 
@@ -90,7 +97,50 @@ class BeadShape:
             valley = min(window)
             peak2valley.append(peak - valley)
 
+        self.peaktoval = peak2valley
+
         return peak2valley
+
+    def trim_start_slope(self,attribute,attributeX):
+        X = getattr(self,attributeX)
+        profile = getattr(self,attribute)
+        peak = max(profile)
+        peakIdx = np.where(profile == peak)[0][0]
+        xtrim = X[peakIdx]
+
+        for i in range(-1, -profile.size, -1):
+            if profile[i] > profile[i - 1]:
+                endIdx = i
+                break
+
+        xendtrim = X[endIdx]
+
+        profile = profile[peakIdx:endIdx]
+        X = X[peakIdx:endIdx]
+
+        setattr(self, attribute, profile)
+        setattr(self, attributeX, X)
+
+        return xtrim, xendtrim
+
+    def trim_end_slope(self,attribute, attributeX):
+
+        X = getattr(self, attributeX)
+        profile = getattr(self, attribute)
+
+        for i in range(-1,-profile.size,-1):
+            if profile[i] > profile[i - 1]:
+                endIdx = i
+                break
+
+        profile = profile[:endIdx]
+        X = X[:endIdx]
+        xendtrim = X[endIdx]
+
+        setattr(self, attribute, profile)
+        setattr(self, attributeX, X)
+
+        return xendtrim
 
 
 class Bead:
@@ -101,11 +151,12 @@ class Bead:
     allArc = []
     allctwd = []
 
-    def __init__(self, number, lemData,weldData,robData):
+    def __init__(self, number, lemData,weldData,robData, audio):
         self.number = number
         self.lemData = lemData
         self.weldData = weldData
         self.robData = robData
+        self.audio = audio
 
         self.travelSpeed = None
         self.wfs = None
@@ -115,9 +166,9 @@ class Bead:
         self.meltTemps = None
         self.lineProfile = None
         self.baseTemp = None
-        self.audio = None
-        self.audioSR = None
+
         self.predictions = []
+        self.segments = []
 
         self.audioFrames = {}
         self.allBeadStats = None
@@ -160,10 +211,6 @@ class Bead:
         self.baseTemp = np.mean(lineProfile)
         Bead.allBaseTemp.append(self.baseTemp)
 
-    def add_audio(self, audio, sr):
-        self.audio = audio
-        self.audioSR = sr
-
     def segment(self,overlap,numWindows):
         lemData = self.lemData
         weldData = self.weldData
@@ -193,30 +240,60 @@ class Bead:
                 endIdx = i
                 break
 
-        self.robData['Robot Y'] = robotY[startIdx:endIdx]
+        robotY = robotY[startIdx:endIdx]
+        robotY = robotY - min(robotY)
+
+        self.robData['Robot Y'] = robotY
         self.robData['Robot X'] = robotX[startIdx:endIdx]
         self.robData['Robot Z'] = robotZ[startIdx:endIdx]
+
+        del robotX,robotY,robotZ
 
         startTime = time[startIdx]
         endTime = time[endIdx]
         self.robData['Time'] = time[startIdx:endIdx]
 
+        del time
+
         self.weldData = trim_times(startTime, endTime, self.weldData)
         self.lemData = trim_times(startTime, endTime, self.lemData)
         self.meltTemps = trim_times(startTime, endTime, self.meltTemps)
+        self.audio = trim_times(startTime, endTime, self.audio)
+
+    def trim_profile_time(self,xtrim,xendtrim):
+
+        robotY = self.robData['Robot Y']
+        time = self.robData['Time']
+        diffStart = abs(robotY - xtrim)
+        idxStart= np.where(diffStart == min(diffStart))[0][0]
+
+        diffEnd = abs(robotY - xendtrim)
+        idxEnd = np.where(diffEnd == min(diffEnd))[0][0]
+
+        startTime = time[idxStart]
+        endTime = time[idxEnd]
+
+        self.weldData = trim_times(startTime, endTime, self.weldData)
+        self.lemData = trim_times(startTime, endTime, self.lemData)
+        self.meltTemps = trim_times(startTime, endTime, self.meltTemps)
+        self.audio = trim_times(startTime, endTime, self.audio)
 
     def filter_blips(self):
 
         xtemp = self.robData['Robot X']
         filter_idx = np.where(xtemp > 500)
 
-        self.robData['Robot X'] = np.delete(xtemp, filter_idx)
-        self.robData['Robot Y'] = np.delete(self.robData['Robot Y'], filter_idx)
-        self.robData['Robot Z'] = np.delete(self.robData['Robot Z'], filter_idx)
-        self.robData['Time'] = np.delete(self.robData['Time'], filter_idx)
+        if filter_idx.size == 0:
+            return 0
+        else:
+            self.robData['Robot X'] = np.delete(xtemp, filter_idx)
+            del xtemp
+            self.robData['Robot Y'] = np.delete(self.robData['Robot Y'], filter_idx)
+            self.robData['Robot Z'] = np.delete(self.robData['Robot Z'], filter_idx)
+            self.robData['Time'] = np.delete(self.robData['Time'], filter_idx)
 
-        self.weldData['Wire Feed Speed'] = np.delete(self.weldData['Wire Feed Speed'], filter_idx)
-        self.weldData['Time'] = np.delete(self.weldData['Time'], filter_idx)
+            self.weldData['Wire Feed Speed'] = np.delete(self.weldData['Wire Feed Speed'], filter_idx)
+            self.weldData['Time'] = np.delete(self.weldData['Time'], filter_idx)
 
     def delete_item(self,attribute,*itemKeys):
 
@@ -240,11 +317,12 @@ class Bead:
 
     def segment(self,percent_overlap,num_windows):
         # Window audio data
-        audio_size = self.audio.size
+        audio_size = self.audio['Audio'].size
         lw_audio = seg.calculate_winlength(audio_size, percent_overlap, num_windows)
         hop = floor(lw_audio - lw_audio * percent_overlap)
         # Store windowed audio features back in object
-        self.audioFrames = af.extract_basic_features(self.audio, 22050, hop, lw_audio)
+        self.audioFrames = af.extract_basic_features(self.audio['Audio'], 22050, hop, lw_audio)
+
 
         # Delete unwanted items from bead object
         self.delete_item('weldData', 'Motor Current', 'Time')
@@ -258,7 +336,7 @@ class Bead:
 
         self.merge_data('lemDataStats','weldDataStats')
 
-        del self.audio, self.lemData, self.weldData
+        del self.audio, self.lemData, self.weldData, self.meltTempStats
 
 
 class Layer:
@@ -275,6 +353,8 @@ class Layer:
         self.beads = []
         self.interLayerTemp = None
         self.meltPool = None
+        self.X = None
+        self.Y = None
 
     def add_audio(self,audio,audioSR):
         self.audio = audio
@@ -321,6 +401,10 @@ class Layer:
             self.beads.append(currentBead)
 
         del self.weldData,self.lemData,self.robData
+
+    def compute_layer_DF(self,num_windows,percent_overlap):
+
+        self.X, self.Y = seg.segment_assemble(self.beads, BeadShape,num_windows,percent_overlap)
 
 
 def beadNumber(i):
@@ -479,9 +563,59 @@ def trim_times(startTime,endTime,data):
     time = data['Time']
     startIdx, endIdx = find_time_idx(time,startTime,endTime)
 
+    del time
+
     for key in data:
         series = data[key]
         data[key] = series[startIdx:endIdx]
 
     return data
+
+
+def extract_labview(path,NumPts):
+
+    beads = []
+
+    for i in range(1, NumPts+1):
+
+        TempRobData = {}
+        TempWeldData = {}
+        TempLEMData = {}
+        Audio = {}
+
+        beadnumstr = beadNumber(i)
+        beadPath = path+'\\LabVIEW\\Bead' + beadnumstr
+
+        temp_file = TdmsFile.read(beadPath + '\\Bead01.tdms')
+
+        RobGroup = temp_file["Robot Data"]
+        WeldGroup = temp_file["Welding Data"]
+        LEMGroup = temp_file['LEM Box']
+
+        for channel in RobGroup.channels():
+            TempRobData[channel.name] = channel[:]
+
+        for channel in LEMGroup.channels():
+            TempLEMData[channel.name] = channel[:]
+
+        for channel in WeldGroup.channels():
+            TempWeldData[channel.name] = channel[:]
+
+        LEMtime = get_LEMtime(TempLEMData)
+        TempLEMData['Time'] = LEMtime
+
+        finalTime = TempRobData['Time'][-1]
+
+        #Get Audio
+        tempAudio, SR = none = librosa.load(beadPath + '\\Bead01.wav')
+        tempAudio = af.clipEndAudio(tempAudio)
+        time = af.add_time(tempAudio,finalTime)
+        Audio['Time'] = time
+        del time
+        Audio['Audio'] = tempAudio
+        beads.append(Bead(i, TempLEMData, TempWeldData, TempRobData, Audio))
+        del tempAudio
+
+    return beads
+
 

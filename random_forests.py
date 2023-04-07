@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import os
 
+import data_processing as dp
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.ensemble import RandomForestClassifier
@@ -12,8 +13,6 @@ from sklearn.model_selection import cross_val_predict
 from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import accuracy_score
-from sklearn.metrics import r2_score
-
 from sklearn.inspection import permutation_importance
 
 
@@ -103,11 +102,11 @@ def classification_noRFE(Characterization, X, key):
     print(predictions)
 
 
-def classification_RFE(X, Y, metric):
-    cwd = os.getcwd()
+def classification_RFE(X, Y, metric, output_path):
+
 
     try:
-        new_path = os.path.join(cwd, metric)
+        new_path = os.path.join(output_path, 'Random Forests')
         os.mkdir(new_path)
     except:
         os.chdir(new_path)
@@ -125,7 +124,7 @@ def classification_RFE(X, Y, metric):
     summary_df = pd.DataFrame(columns=['Number of Features', 'MAE', 'Least Important Feature'])
     all_num_features, all_mae, all_least_import = list(), list(), list()
 
-    while number_of_features >= 5:
+    while number_of_features >= 7:
 
         y_pred, y_true = list(), list()
 
@@ -138,7 +137,7 @@ def classification_RFE(X, Y, metric):
             classifier.fit(X_train, Y_train)
             y_hat = classifier.predict(X_test)
             y_pred.append(y_hat[0])
-            y_true.append(Y_test.iloc[0])
+            y_true.append(Y_test[0])
 
         feat_imp = permutation_importance(classifier, X_train, Y_train)
         combined_feature_importance = feat_imp.importances_mean
@@ -178,6 +177,7 @@ def classification_RFE(X, Y, metric):
 
 
 def regression_RFE(Y, X, unitsChar,metric):
+    X = dp.normalize_data(X)
     print('RFE Function Called')
 
     cwd = os.getcwd()

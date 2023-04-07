@@ -41,19 +41,27 @@ def extract_basic_features(audio, sampling_rate = 48000, hop = 512, n_win = 2048
 def extract_timeseries_features(audio,lw_audio,hop):
 
     audioWindows = librosa.util.frame(audio,lw_audio,hop)
+
     audioAvgs = np.mean(audioWindows, axis=0)
-    audioVar = np.var(audioWindows,axis=0)
     audioKurt = sc.stats.kurtosis(audioWindows, axis=0)
     soundPressureLevel = sound_pressure(audio,150)
+    rms = librosa.feature.rms(audio, frame_length=lw_audio, hop_length=hop, center=False)[0]
 
     audioFeat = pd.DataFrame()
 
     audioFeat['Amplitude Mean'] = audioAvgs
-    audioFeat['Amplitude Variance'] = audioVar
     audioFeat['Amplitude Kurtosis'] = audioKurt
     audioFeat['Sound Pressure Level'] = soundPressureLevel
+    audioFeat['Root Mean Square'] = rms
 
     return audioFeat
+
+def add_time(audio, endTime):
+
+    numSamples = audio.size
+    time = np.linspace(0,endTime,numSamples)
+
+    return time
 
 
 def sound_pressure(audioSample,sensitivity):
@@ -71,7 +79,7 @@ def sound_pressure(audioSample,sensitivity):
 
 def clipEndAudio(audioex):
     for i in range(-1, -len(audioex), -1):
-        if audioex[i] > 0.9:
+        if audioex[i] > 0.7:
             endidx = i
             break
 
@@ -88,15 +96,15 @@ def fourier_transform(X):
 
 
 def file_extract(NumPts,pathAudio,Beads):
-    SR={}
+
     for i in range(1,NumPts+1):
+
+        Audio = {}
 
         if i < 10:
             beadnumstr = "0" + str(i)
         else:
             beadnumstr = str(i)
-
-        key = "Bead"+str(i)
 
         path = pathAudio+'\\LabVIEW\\Bead' + beadnumstr
 
@@ -106,7 +114,13 @@ def file_extract(NumPts,pathAudio,Beads):
 
         # Remove the portion of the audio that recorded after the arc shut off
         tempAudio = clipEndAudio(tempAudio)
-        Beads[i-1].add_audio(tempAudio,SR)
+
+        finalTime = Beads[i-1].robData['Time'][-1]
+        time = add_time(tempAudio,finalTime)
+        Audio['Time'] = time
+        del time
+        Audio['Audio'] = tempAudio
+        Beads[i-1].add_audio(Audio,SR)
         del tempAudio
 
     return Beads
@@ -115,8 +129,8 @@ def file_extract(NumPts,pathAudio,Beads):
 def denoise_audio(Beads):
 
     for bead in Beads:
-        X_denoise = denoise_wavelet(bead.audio, method='VisuShrink',mode='soft',wavelet_levels=3,wavelet='sym8',rescale_sigma='True')
-        bead.audio=X_denoise
+        X_denoise = denoise_wavelet(bead.audio['Audio'], method='VisuShrink',mode='soft',wavelet_levels=3,wavelet='sym8',rescale_sigma='True')
+        bead.audio['Audio']=X_denoise
     return Beads
 
 

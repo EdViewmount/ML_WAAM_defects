@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import os
 
 import plotting
 import audio_features as af
@@ -13,6 +14,8 @@ import global_model as gm
 
 from tkinter import *
 from tkinter import filedialog
+
+
 
 
 def difference(x):
@@ -81,6 +84,19 @@ def on_click(text):
 
     return 0;
 
+
+def output_classify(Y, cutoff):
+    booleanArray = []
+
+    for y in Y:
+
+        if y > cutoff:
+            booleanArray.append(1)
+        else:
+            booleanArray.append(0)
+
+    return booleanArray
+
 # def main():
 
 #Main Program
@@ -92,6 +108,10 @@ unitsChar = {'Bead Width': '(mm)','Bead Height': '(mm)', 'Ra': '(um)','Rz':'(um)
 NumPts = 45
 Xunits = pd.read_csv(path+'\\Xunits.csv')
 
+
+outputMainPath = os.path.join(path, 'Output')
+
+
 ##############################################
 # Bead Shape Profiles
 ###########################################
@@ -102,17 +122,17 @@ BeadShapes = []
 for i in range(1, NumPts + 1):
 
     dataHeight = pd.read_csv(path+'\\Height Profiles\\' + hfilename + str(i) + '.csv')
-    # dataWidth = pd.read_csv(path + '\\Width Profiles\\Bead' + str(i) + wfilename)
-    # L = dataWidth['Length'].tolist()
-    # Width = dataWidth['Width'].tolist()
+    dataWidth = pd.read_csv(path + '\\Width and Centerline\\Bead' + str(i) + wfilename)
+    L = dataWidth['Length'].tolist()
+    Width = dataWidth['Width'].tolist()
     # CtrLineDeviation = dataWidth['CenterLineDeviation']
     X = dataHeight["X(mm)"].tolist()
     Z = dataHeight["Z(mm)"].tolist()
     del dataHeight
-    tempBead = dp.BeadShape(i,X,Z)
+    tempBead = dp.BeadShape(i,X,Z,L,Width)
     tempBead.profile_trim(path,i)
     BeadShapes.append(tempBead)
-    del tempBead,X,Z
+    del tempBead,X,Z, Width, L
 
 # mode = StringVar()
 # win = Tk()
@@ -127,23 +147,36 @@ for i in range(1, NumPts + 1):
 #Extract settings from csv file
 Settings = pd.read_csv(path + '\\Settings.csv')
 #Extract time series data from tdms file
-Beads = dp.extract_tdms(path,NumPts)
+Beads = dp.extract_labview(path,NumPts)
 #Extract IR data from csv files
 Beads = dp.extract_IR_data(path,Beads,NumPts)
-
-for bead in Beads:
-    i = bead.number
-    bead.add_settings(Settings.iloc[i-1,:])
-    #bead.filter_blips()
-    bead.remove_prepost_time()
 
 
 #################################
 # Get Audio Features
 ######################################
 
-Beads = af.file_extract(NumPts,path,Beads)
 Beads = af.denoise_audio(Beads)
+
+
+#Plot bead profiles prior to pre-processing
+# for beadshape in BeadShapes:
+#     plotting.plot_profile(beadshape,outputMainPath)
+
+
+############################################################
+#Pre-processing
+###########################################################
+
+for bead in Beads:
+    i = bead.number
+    bead.add_settings(Settings.iloc[i-1,:])
+    #bead.filter_blips()
+    bead.remove_prepost_time()
+    xtrim, xendtrim = BeadShapes[i-1].trim_start_slope('Height','x')
+
+    bead.trim_profile_time(xtrim,xendtrim)
+
 
 # ############################################
 # # Create data frame and output dictionary
@@ -151,23 +184,34 @@ Beads = af.denoise_audio(Beads)
 
 # # X, Characterization = gm.structure_data(WeldData,LEMData, Beads, Audio, path)
 
-#Remove problematic sample from data set
-Beads.pop(28)
-BeadShapes.pop(28)
-NumPts = NumPts - 1
-X,Y = seg.segment_assemble(Beads, BeadShapes, 10, 0.15)
-#X.drop(['Melt Pool Temperature Kurt','Melt Pool Temperature Std'],axis=1)
-# # plotting.plot_segmentXY(X,Y,'Welding Current Mean',Xunits)
+num_windows = 10
+percent_overlap = 0.15
+attribute = 'Height'
+metric = 'Peak to Valley'
+outputName = attribute + ' ' + metric
+
+try:
+    outputPath = os.path.join(outputMainPath, outputName)
+    os.mkdir(outputPath)
+except:
+    os.chdir(outputPath)
+
+#Plot bead profiles prior to pre-processing
+for beadshape in BeadShapes:
+    plotting.plot_profile(beadshape,'Trimmed Height Profile',outputMainPath,)
+
+X,Y = seg.segment_assemble(Beads, BeadShapes, num_windows, percent_overlap, attribute = attribute, metric = metric)
+
+print('Output %s ranges from %.6f to %.6f. The range is %.6f' % (outputName,min(Y), max(Y), (max(Y)-min(Y))))
+
 
 # ######################################
 # #Eliminate Highly Correlated Features
 # #######################################
 
-fig_corr = plt.figure()
 corr = X.corr()
-plt.subplots(figsize=(30,25))
-sns.heatmap(corr)
-fig_corr.savefig('Correlation_Matrix.png')
+fig_corr = sns.heatmap(corr)
+fig_corr.figure.savefig(outputMainPath+'\\Correlation_Matrix.png')
 
 columns = np.full((corr.shape[0],), True, dtype=bool)
 cols = X.columns.tolist()
@@ -196,13 +240,35 @@ for i in range(corr.shape[0]):
 # # Y = Characterization['Porosity']
 # # por_idx = [i for i in range(len(Y)) if Y[i] == 1]
 # # X = X.drop(por_idx)
+#Y_std = seg.output_array(BeadShapes,'z','Std', percent_overlap,num_windows)
+# plt.figure()
+# plt.scatter(Y,Y_std)
 
+
+#Create classification problem
+Y = np.array(Y)
+n,bins = plotting.plot_histogram(Y,outputName)
+#freqSplitIdx = np.where(n == 20)
+binCutoff = 0.20840
+boolY = output_classify(Y, binCutoff)
+n_true = sum(boolY)
+p_true = n_true/len(boolY)
+print('Percent of Y that is true: %.3f' % p_true)
+classifyDataframe = pd.DataFrame()
+classifyDataframe['Peak to Valley (mm)'] = Y
+classifyDataframe['>  0.1872'] = boolY
+boolY = np.array(boolY)
+
+
+#Run model
 print('Model Initializing')
-#rf.regression_RFE(Y, X, unitsChar,'Bead Height')
+# #rf.regression_RFE(Y, X, unitsChar,'Bead Height')
+#rf.classification_RFE(X, boolY, outputPath)
 #nn.neuralNetwork(X,Y)
-nn.recurrentNeuralNetwork(X,Y,NumPts,8)
+#nn.neuralNetwork_classify(X,boolY)
+
+nn.recurrentNeuralNetwork(X,Y,NumPts,9)
 
 # # # # if __name__ == "__main__":
 # # # #     print("Running")
 # # # #     main()
-# #

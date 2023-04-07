@@ -16,18 +16,83 @@ def plot_main():
     plotMenu.title('Plotting Menu')
 
 
+def plot_histogram(Y,metric):
+
+    hist = plt.figure()
+
+    Y = np.array(Y)
+
+    # An "interface" to matplotlib.axes.Axes.hist() method
+    n, bins, patches = plt.hist(x=Y, bins=30, color='#0504aa',
+                                alpha=0.7, rwidth=0.85)
+    plt.grid(axis='y', alpha=0.75)
+    plt.xlabel('Value')
+    plt.ylabel('Frequency')
+    plt.title(metric)
+    plt.text(23, 45, r'$\mu=15, b=3$')
+    maxfreq = n.max()
+    # Set a clean upper y-axis limit.
+    plt.ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)
+
+    hist.savefig(metric+' Histogram.png')
+
+    return n,bins
+
+
+def plot_profile(beadshape, profileType,path):
+
+    try:
+        output_path = os.path.join(path,profileType)
+        os.mkdir(output_path)
+    except:
+        p = None
+
+    profilePlot = plt.figure()
+
+    z = beadshape.Height
+    x = beadshape.x
+    num = beadshape.beadNum
+
+    plt.plot(x,z)
+    plt.xlabel('Length (mm)')
+    plt.ylabel('Height (mm)')
+
+    profilePlot.savefig(output_path+'\\' + profileType+ ' Bead'+str(num)+'.png')
+
+    plt.close()
+
+
+def plot_output(beadshape,path,metric):
+
+    try:
+        output_path = os.path.join(path, 'Output Profiles')
+        os.mkdir(output_path)
+    except:
+        p = None
+
+    profilePlot = plt.figure()
+
+    peaktoval = beadshape.peaktoval
+    num = beadshape.beadNum
+    overlap = beadshape.overlap
+    num_windows = beadshape.numWindows
+
+    x = beadshape.segment(overlap,num_windows,attribute = 'x',metric = 'Mean')
+
+    plt.plot(x,peaktoval)
+    plt.xlabel('Length (mm)')
+    plt.ylabel('Height (mm)')
+
+    profilePlot.savefig(output_path+'\\'+ metric+ ' Profile Bead ' + str(num) +'png')
+
+
 def plot_segmentXY(X,Y,input,units):
-
     fig = plt.figure()
-
-    data = X[input]
-    plt.scatter(data,Y)
+    data = X[input]; plt.scatter(data,Y)
     print(units[input])
     plt.xlabel(input + ' (' + units[input][0] + ')')
     plt.ylabel('Height Average (mm)')
-
     fig.savefig('XY Plot' + input + '.png')
-
 
 def plot_timeseries(WeldData,key):
 

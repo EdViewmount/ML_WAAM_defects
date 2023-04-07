@@ -15,11 +15,12 @@ class Segment:
 
     X = pd.DataFrame()
 
-    def __init__(self, data, bead_num, seg_num):
+    def __init__(self, data, bead_num, globalSegNum):
         self.data = data
         self.predictions = 0
         self.bead_num = bead_num
-        self.seg_num = seg_num
+        self.globalSegNum = globalSegNum
+        self.segNum = None
 
     def assign_predictions(self,predictions):
         idx = self.seg_num
@@ -127,18 +128,18 @@ def assemble_df(Segments):
     return X
 
 
-def output_array(BeadShapes,overlap,num_windows):
+def output_array(BeadShapes,attribute,metric, overlap,num_windows):
 
     Y = []
     for beadshape in BeadShapes:
-        Y.extend(beadshape.segment(overlap,num_windows,attribute = 'z',metric = 'Peak2Valley'))
+        Y.extend(beadshape.segment(overlap,num_windows,attribute = attribute,metric = metric))
 
     return Y
 
 
 def store_segment_data(Beads, num_windows):
     Segments = []
-    seg_num = 0
+    globalNum = 0
 
     for bead in Beads:
         bead_num = bead.number
@@ -147,7 +148,9 @@ def store_segment_data(Beads, num_windows):
         travelSpeed = bead.travelSpeed
         baseTemp = bead.baseTemp
 
-        for i in range(1, num_windows-1):
+        segNum = 0
+
+        for i in range(0, num_windows-1):
             segment_data = pd.DataFrame()
             for key in bead_data:
                 temp = (bead_data[key][i])
@@ -157,13 +160,16 @@ def store_segment_data(Beads, num_windows):
             segment_data = pd.concat([segment_data, temp_audio], axis=1)
             segment_data['Travel Speed'] = travelSpeed
             segment_data['Base Temperature'] = baseTemp
-            Segments.append(Segment(segment_data, bead_num, seg_num))
-            seg_num += 1
+            tempSegment = Segment(segment_data, bead_num, globalNum)
+            Segments.append(tempSegment)
+            globalNum += 1
+
+
 
     return Segments
 
 
-def segment_assemble(Beads, BeadShape,num_windows,percent_overlap):
+def segment_assemble(Beads, Output, num_windows,percent_overlap,attribute = 'z', metric = 'Std'):
 
     for bead in Beads:
         bead.segment(percent_overlap,num_windows)
@@ -171,9 +177,17 @@ def segment_assemble(Beads, BeadShape,num_windows,percent_overlap):
     Segments = store_segment_data(Beads, num_windows)
 
     X = assemble_df(Segments)
-    Y = output_array(BeadShape,percent_overlap,num_windows)
+    Y = output_array(Output,attribute,metric,percent_overlap,num_windows)
 
     return X, Y
+
+def layer_assemble(Layers):
+
+    X = pd.DataFrame()
+
+    for layer in Layers:
+        x = layer.X
+        y = layer.Y
 
 
 def prediction_assignment(Segments, Beads, predictions):

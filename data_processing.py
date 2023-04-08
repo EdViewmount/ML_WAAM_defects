@@ -53,7 +53,7 @@ class BeadShape:
         L = temp.size
         lw = seg.calculate_winlength(L, overlap, num_windows)
         windowedProfile = seg.segment_axis(temp, lw, percent_overlap=overlap, end="cut")
-        windowedProfile = np.delete(windowedProfile, num_windows - 1, 0)
+        #windowedProfile = np.delete(windowedProfile, num_windows - 1, 0)
 
         setattr(self,attribute+ ' Windows',windowedProfile)
 
@@ -101,7 +101,7 @@ class BeadShape:
 
         return peak2valley
 
-    def trim_start_slope(self,attribute,attributeX):
+    def trim_slopes(self,attribute,attributeX):
         X = getattr(self,attributeX)
         profile = getattr(self,attribute)
         peak = max(profile)
@@ -109,9 +109,11 @@ class BeadShape:
         xtrim = X[peakIdx]
 
         for i in range(-1, -profile.size, -1):
-            if profile[i] > profile[i - 1]:
+            if (profile[i] > profile[i - 1]) & (profile[i] > 0.8*np.mean(profile)):
                 endIdx = i
                 break
+            elif profile[i] < 0.8 * np.mean(profile):
+                continue
 
         xendtrim = X[endIdx]
 
@@ -123,24 +125,6 @@ class BeadShape:
 
         return xtrim, xendtrim
 
-    def trim_end_slope(self,attribute, attributeX):
-
-        X = getattr(self, attributeX)
-        profile = getattr(self, attribute)
-
-        for i in range(-1,-profile.size,-1):
-            if profile[i] > profile[i - 1]:
-                endIdx = i
-                break
-
-        profile = profile[:endIdx]
-        X = X[:endIdx]
-        xendtrim = X[endIdx]
-
-        setattr(self, attribute, profile)
-        setattr(self, attributeX, X)
-
-        return xendtrim
 
 
 class Bead:

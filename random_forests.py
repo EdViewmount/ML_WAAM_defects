@@ -7,7 +7,7 @@ import data_processing as dp
 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import LeaveOneOut
+from sklearn.model_selection import LeaveOneOut, KFold
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import cross_val_predict
 from sklearn.metrics import mean_absolute_error
@@ -109,12 +109,12 @@ def classification_RFE(X, Y, metric, output_path):
         new_path = os.path.join(output_path, 'Random Forests')
         os.mkdir(new_path)
     except:
-        os.chdir(new_path)
+        pass
 
 
     X_new = X
-    loo = LeaveOneOut()
-    loo.get_n_splits(X_new)
+    kfolds = KFold(n_splits = 10)
+    kfolds.get_n_splits(X_new)
 
     counter = 1
 
@@ -128,7 +128,7 @@ def classification_RFE(X, Y, metric, output_path):
 
         y_pred, y_true = list(), list()
 
-        for train_index, test_index in loo.split(X_new):
+        for train_index, test_index in kfolds.split(X_new):
             X_train, X_test = X_new.iloc[train_index], X_new.iloc[test_index]
             Y_train, Y_test = Y[train_index], Y[test_index]
 
@@ -176,25 +176,25 @@ def classification_RFE(X, Y, metric, output_path):
     summary_df.to_csv(new_path + '\\Summary_ ' + file_suffix + '.csv')
 
 
-def regression_RFE(Y, X, unitsChar,metric):
+def regression_RFE(Y, X,outputPath, unitsChar,metric):
     X = dp.normalize_data(X)
     print('RFE Function Called')
 
-    cwd = os.getcwd()
-
     try:
-        new_path = os.path.join(cwd, metric)
+        new_path = os.path.join(outputPath, metric)
         os.mkdir(new_path)
     except:
-        os.chdir(new_path)
+        pass
 
     X_new = X
 
-    loo = LeaveOneOut()
-    loo.get_n_splits(X_new)
+    kfolds = KFold(n_splits = 10)
+    kfolds.get_n_splits(X_new)
     print('Leave-One-Out Splits Acquired')
 
     counter = 1
+
+    X_new = X
 
     X_features = X_new.columns.to_numpy()
     number_of_features = len(X_features)
@@ -208,7 +208,7 @@ def regression_RFE(Y, X, unitsChar,metric):
         y_pred, y_true = list(), list()
 
         print('Training loop begins')
-        for train_index, test_index in loo.split(X_new):
+        for train_index, test_index in kfolds.split(X_new):
             X_train, X_test = X_new.iloc[train_index], X_new.iloc[test_index]
             Y_train, Y_test = Y[train_index], Y[test_index]
 
@@ -267,3 +267,34 @@ def multimetric_regression(Characterization, X, unitsChar):
 
     for metric in Characterization:
         regression_RFE(Characterization[metric], X, unitsChar, metric)
+
+
+def randomForestMain(Y, X, outputPath, unitsChar, metric, problem_scope = 'Local',problem_type = 'Classification'):
+    X = dp.normalize_data(X)
+    print('RFE Function Called')
+
+    try:
+        new_path = os.path.join(outputPath, metric)
+        os.mkdir(new_path)
+    except:
+        pass
+
+    if problem_type == 'Local':
+        valsplits = KFold(n_splits=10)
+        valsplits.get_n_splits(X)
+        print('K Fold Splits Acquired')
+    if problem_type == 'Global':
+        valsplits = LeaveOneOut()
+        valsplits.get_n_splits(X)
+        print('Leave-One-Out Splits Acquired')
+
+    X_new = X
+
+    counter = 1
+
+    X_features = X_new.columns.to_numpy()
+    number_of_features = len(X_features)
+
+    summary_df = pd.DataFrame(columns=['Number of Features', 'MAE', 'Least Important Feature'])
+    all_num_features, all_mae, all_least_import = list(), list(), list()
+

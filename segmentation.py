@@ -150,7 +150,7 @@ def store_segment_data(Beads, num_windows):
 
         segNum = 0
 
-        for i in range(0, num_windows-1):
+        for i in range(0, num_windows):
             segment_data = pd.DataFrame()
             for key in bead_data:
                 temp = (bead_data[key][i])

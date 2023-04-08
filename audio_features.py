@@ -56,6 +56,7 @@ def extract_timeseries_features(audio,lw_audio,hop):
 
     return audioFeat
 
+
 def add_time(audio, endTime):
 
     numSamples = audio.size
@@ -93,37 +94,6 @@ def fourier_transform(X):
     X_mag=np.absolute(X)
 
     return Xfft, X_mag
-
-
-def file_extract(NumPts,pathAudio,Beads):
-
-    for i in range(1,NumPts+1):
-
-        Audio = {}
-
-        if i < 10:
-            beadnumstr = "0" + str(i)
-        else:
-            beadnumstr = str(i)
-
-        path = pathAudio+'\\LabVIEW\\Bead' + beadnumstr
-
-        #Find all audio files in target directory
-        files=librosa.util.find_files(path, ext='wav')
-        tempAudio,SR=none=librosa.load(files[0])
-
-        # Remove the portion of the audio that recorded after the arc shut off
-        tempAudio = clipEndAudio(tempAudio)
-
-        finalTime = Beads[i-1].robData['Time'][-1]
-        time = add_time(tempAudio,finalTime)
-        Audio['Time'] = time
-        del time
-        Audio['Audio'] = tempAudio
-        Beads[i-1].add_audio(Audio,SR)
-        del tempAudio
-
-    return Beads
 
 
 def denoise_audio(Beads):
@@ -202,6 +172,34 @@ def plot_audio_spectra(Audio, sr, layer, cut_freq):
     return audio_plot, frequency, mag_spectrum[0:floor(N/2)]
 
 
-
-
+# def file_extract(NumPts,pathAudio,Beads):
+#
+#     for i in range(1,NumPts+1):
+#
+#         Audio = {}
+#
+#         if i < 10:
+#             beadnumstr = "0" + str(i)
+#         else:
+#             beadnumstr = str(i)
+#
+#         path = pathAudio+'\\LabVIEW\\Bead' + beadnumstr
+#
+#         #Find all audio files in target directory
+#         files=librosa.util.find_files(path, ext='wav')
+#         tempAudio,SR=none=librosa.load(files[0])
+#
+#         # Remove the portion of the audio that recorded after the arc shut off
+#         tempAudio = clipEndAudio(tempAudio)
+#
+#         finalTime = Beads[i-1].robData['Time'][-1]
+#         time = add_time(tempAudio,finalTime)
+#         Audio['Time'] = time
+#         del time
+#         Audio['Audio'] = tempAudio
+#         Beads[i-1].add_audio(Audio,SR)
+#         del tempAudio
+#
+#     return Beads
+#
 

@@ -108,7 +108,7 @@ def neuralNetwork(X,Y):
             metrics="mse")
 
         model.fit(X[trainIdx], Y[trainIdx],
-                  epochs=500,
+                  epochs=200,
                   verbose=0,
                   shuffle=True)
         train_scores = model.evaluate(X[trainIdx],Y[trainIdx], verbose = 1)

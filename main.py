@@ -16,8 +16,6 @@ from tkinter import *
 from tkinter import filedialog
 
 
-
-
 def difference(x):
     i=0
     diff=[]
@@ -153,7 +151,7 @@ Beads = dp.extract_IR_data(path,Beads,NumPts)
 
 
 #################################
-# Get Audio Features
+#Denoise Audio
 ######################################
 
 Beads = af.denoise_audio(Beads)
@@ -173,7 +171,7 @@ for bead in Beads:
     bead.add_settings(Settings.iloc[i-1,:])
     #bead.filter_blips()
     bead.remove_prepost_time()
-    xtrim, xendtrim = BeadShapes[i-1].trim_start_slope('Height','x')
+    xtrim, xendtrim = BeadShapes[i-1].trim_slopes('Height','x')
 
     bead.trim_profile_time(xtrim,xendtrim)
 
@@ -196,7 +194,7 @@ try:
 except:
     os.chdir(outputPath)
 
-#Plot bead profiles prior to pre-processing
+# #Plot bead profiles prior to pre-processing
 for beadshape in BeadShapes:
     plotting.plot_profile(beadshape,'Trimmed Height Profile',outputMainPath,)
 
@@ -216,7 +214,7 @@ fig_corr.figure.savefig(outputMainPath+'\\Correlation_Matrix.png')
 columns = np.full((corr.shape[0],), True, dtype=bool)
 cols = X.columns.tolist()
 # Remove one of every pair of columns that are 95% correlated
-print("Dropping data points are 95% correlated to existing data:")
+print("Dropping data points that are 95% correlated to existing data:")
 for i in range(corr.shape[0]):
     if i > 0 :
         for j in range(i+1, corr.shape[0]):
@@ -233,23 +231,23 @@ for i in range(corr.shape[0]):
 # elif mode == 'Modeling':
 #     v = 2
 
-############################
-##Machine Learning Model ###
-############################
-
-# # Y = Characterization['Porosity']
-# # por_idx = [i for i in range(len(Y)) if Y[i] == 1]
-# # X = X.drop(por_idx)
-#Y_std = seg.output_array(BeadShapes,'z','Std', percent_overlap,num_windows)
-# plt.figure()
-# plt.scatter(Y,Y_std)
-
-
-#Create classification problem
+# ############################
+# ##Machine Learning Model ###
+# ############################
+#
+# # # Y = Characterization['Porosity']
+# # # por_idx = [i for i in range(len(Y)) if Y[i] == 1]
+# # # X = X.drop(por_idx)
+# #Y_std = seg.output_array(BeadShapes,'z','Std', percent_overlap,num_windows)
+# # plt.figure()
+# # plt.scatter(Y,Y_std)
+#
+#
+# #Create classification problem
 Y = np.array(Y)
 n,bins = plotting.plot_histogram(Y,outputName)
 #freqSplitIdx = np.where(n == 20)
-binCutoff = 0.20840
+binCutoff = 0.13797
 boolY = output_classify(Y, binCutoff)
 n_true = sum(boolY)
 p_true = n_true/len(boolY)
@@ -258,16 +256,17 @@ classifyDataframe = pd.DataFrame()
 classifyDataframe['Peak to Valley (mm)'] = Y
 classifyDataframe['>  0.1872'] = boolY
 boolY = np.array(boolY)
+#
+del Beads, BeadShapes
 
-
-#Run model
-print('Model Initializing')
-# #rf.regression_RFE(Y, X, unitsChar,'Bead Height')
-#rf.classification_RFE(X, boolY, outputPath)
-#nn.neuralNetwork(X,Y)
+# #Run model
+# print('Model Initializing')
+# # #rf.regression_RFE(Y, X, unitsChar,'Bead Height')
+# #rf.classification_RFE(X, boolY,outputName,outputPath)
+nn.neuralNetwork(X,Y)
 #nn.neuralNetwork_classify(X,boolY)
 
-nn.recurrentNeuralNetwork(X,Y,NumPts,9)
+#nn.recurrentNeuralNetwork(X,Y,NumPts,9)
 
 # # # # if __name__ == "__main__":
 # # # #     print("Running")

@@ -6,6 +6,7 @@ import seaborn as sns
 import plotting
 import audio_features as af
 import data_processing as dp
+import scipy as sc
 
 
 def get_averages(dictionary):
@@ -62,55 +63,66 @@ def create_dataframe(WeldAvg, AudioFrames):
 
     return DF
 
-
-def height_stdevs(Beads):
-    stdevs = []
-
-    for key in Beads:
-        ztemp = np.array(Beads[key].z)
-        zstdev = np.std(ztemp[np.isfinite(ztemp)])
-        stdevs.append(zstdev)
-    return stdevs
-
-
-def get_characterization_metrics(path, Beads):
-
-    Stdevs = height_stdevs(Beads)
-    Characterization = pd.read_csv(path + 'Characterization.csv')
-    Characterization['Bead Height Standard Deviation'] = Stdevs
-    Characterization.to_csv(path + 'Characterization.csv', index=False)
-    # Characterization = Characterization.drop(['Bead','Dynamic Correction','Arc Correction','Sa'], axis=1)
-    Characterization = Characterization.drop(['Bead'], axis=1)
-
-    return Characterization
+#
+# def get_characterization_metrics(path, Beads):
+#
+#     Stdevs = height_stdevs(Beads)
+#     Characterization = pd.read_csv(path + 'Characterization.csv')
+#     Characterization['Bead Height Standard Deviation'] = Stdevs
+#     Characterization.to_csv(path + 'Characterization.csv', index=False)
+#     # Characterization = Characterization.drop(['Bead','Dynamic Correction','Arc Correction','Sa'], axis=1)
+#     Characterization = Characterization.drop(['Bead'], axis=1)
+#
+#     return Characterization
 
 
-def structure_data(WeldData,LEMData, Beads, Audio, path):
-
-    Characterization = get_characterization_metrics(path, Beads)
-    WeldData = dp.merge_data_dicts(LEMData, WeldData)
-
-    #################################
-    # Get Audio Features
-    ######################################
-
-    AudioFrame = {}
-    for key in Audio:
-        dfkey = key
-        AudioFrame[dfkey] = af.extract_basic_features(Audio[key], 48000)
-
-    ############################################
-    # Create data frame
-    ##########################################
-
-    WeldAvg = get_averages(WeldData)
-    X = create_dataframe(WeldAvg, AudioFrame)
-
-    return X, Characterization
+# def structure_data(WeldData,LEMData, Beads, Audio, path):
+#
+#     Characterization = get_characterization_metrics(path, Beads)
+#     WeldData = dp.merge_data_dicts(LEMData, WeldData)
+#
+#     #################################
+#     # Get Audio Features
+#     ######################################
+#
+#     AudioFrame = {}
+#     for key in Audio:
+#         dfkey = key
+#         AudioFrame[dfkey] = af.extract_basic_features(Audio[key], 48000)
+#
+#     ############################################
+#     # Create data frame
+#     ##########################################
+#
+#     WeldAvg = get_averages(WeldData)
+#     X = create_dataframe(WeldAvg, AudioFrame)
+#
+#     return X, Characterization
 
 ############################################################################
 #Object Oriented Functions
 ###########################################################################
+
+def computeOutputs(BeadShapes, attribute, metric):
+    Y = []
+
+    for beadshape in BeadShapes:
+        profile = getattr(beadshape,attribute)
+
+        if metric == 'Mean':
+            y = np.mean(profile, axis=1)
+
+        elif metric == 'Std':
+
+            y = np.std(profile[np.isfinite(profile)])
+
+        elif metric == 'Peak to Valley':
+
+            peak2Val= beadshape.segment(0.15,10,attribute = attribute,metric = 'Peak to Valley')
+            y = np.mean(peak2Val)
+
+        Y.append(y)
+    return Y
 
 
 def get_averages_object(bead, attribute):
@@ -126,6 +138,7 @@ def get_averages_object(bead, attribute):
 
             dict_avg[inner_key + ' Mean'] = [np.mean(x[np.isfinite(x)])]
             dict_avg[inner_key + ' Std'] = [np.std(x[np.isfinite(x)])]
+            dict_avg[inner_key + ' Kurt'] = sc.stats.kurtosis(data, axis=1)
 
             setattr(bead,attribute+'Stats',dict_avg)
 
@@ -156,17 +169,18 @@ def create_dataframe_object(Beads):
     return DF
 
 
-def structure_data_object(Beads, BeadShape, Audio, path):
+def structure_data_object(Beads, BeadShape, attribute, metric):
 
-    Characterization = get_characterization_metrics(path, BeadShape)
+    Y = computeOutputs(BeadShape,attribute,metric)
 
     for bead in Beads:
         bead = get_averages_object(bead, 'lemData')
         bead = get_averages_object(bead, 'weldData')
+        bead = get_averages_object(bead, 'meltPoolTemps')
         bead.merge_data()
 
         #Get audio data frame and store
-        bead.audioFrames = af.extract_basic_features(bead.audio, 48000)
+        bead.audioFrames = af.extract_basic_features(bead.audio['Audio'], 48000)
 
     ############################################
     # Create data frame
@@ -174,4 +188,4 @@ def structure_data_object(Beads, BeadShape, Audio, path):
 
     X = create_dataframe(Beads)
 
-    return X, Characterization
+    return X, Y

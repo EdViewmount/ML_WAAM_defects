@@ -179,7 +179,8 @@ def segment_assemble(Beads, Output, num_windows,percent_overlap,attribute = 'z',
     X = assemble_df(Segments)
     Y = output_array(Output,attribute,metric,percent_overlap,num_windows)
 
-    return X, Y
+    return X, Y, Segments
+
 
 def layer_assemble(Layers):
 

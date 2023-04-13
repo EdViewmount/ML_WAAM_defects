@@ -4,8 +4,10 @@ import pandas as pd
 from math import floor
 import os
 from scipy import signal
+import librosa
 
 import audio_features as af
+import segmentation as seg
 
 from tkinter import *
 from tkinter import filedialog
@@ -16,7 +18,51 @@ def plot_main():
     plotMenu.title('Plotting Menu')
 
 
-def plot_histogram(Y,metric):
+def plot_timeseries(X,outputMainPath):
+    values = X.values
+    # specify columns to plot
+    groups = [0, 1, 2, 3, 5, 6, 7]
+    i = 1
+    # plot each column
+    time_series = plt.figure()
+    for group in groups:
+        plt.subplot(len(groups), 1, i)
+        plt.plot(values[:, group])
+        plt.title(X.columns[group], y=0.5, loc='right')
+        i += 1
+    plt.show()
+    time_series.savefig(outputMainPath)
+
+
+def plot_spectrograms(bead, outputMainPath,percent_overlap,num_windows, sr = 22050, group = 'audio', waveform = 'Audio'):
+
+    try:
+        specPath = os.path.join(outputMainPath, waveform + ' Spectrograms')
+        os.mkdir(specPath)
+    except:
+        pass
+
+    num = bead.number
+
+    wave = getattr(bead,group)[waveform]
+
+    fig, ax = plt.subplots()
+
+    n_win = seg.calculate_winlength(wave.size, percent_overlap, num_windows)
+    hop = floor(n_win - n_win * percent_overlap)
+
+    spec = np.abs(librosa.stft(wave, n_fft=n_win, hop_length=hop, center=False))
+    spec = librosa.amplitude_to_db(spec, ref=np.max)
+
+    img = librosa.display.specshow(spec, ax=ax,sr=sr, x_axis='time', y_axis='log')
+    fig.colorbar(img, ax=ax, format='%+2.0f dB')
+
+    fig.savefig(specPath + '\\' + waveform + ' Spectrogram Bead ' + str(num) + '.png')
+
+    plt.close()
+
+
+def plot_histogram(Y,metric,outputPath):
 
     hist = plt.figure()
 
@@ -34,7 +80,7 @@ def plot_histogram(Y,metric):
     # Set a clean upper y-axis limit.
     plt.ylim(ymax=np.ceil(maxfreq / 10) * 10 if maxfreq % 10 else maxfreq + 10)
 
-    hist.savefig(metric+' Histogram.png')
+    hist.savefig(outputPath + '\\' + metric+' Histogram.png')
 
     return n,bins
 
@@ -45,9 +91,9 @@ def plot_profile(beadshape, profileType,path):
         output_path = os.path.join(path,profileType)
         os.mkdir(output_path)
     except:
-        p = None
+        pass
 
-    profilePlot = plt.figure()
+    profilePlot = plt.figure(figsize= [15,5])
 
     z = beadshape.Height
     x = beadshape.x
@@ -68,7 +114,7 @@ def plot_output(beadshape,path,metric):
         output_path = os.path.join(path, 'Output Profiles')
         os.mkdir(output_path)
     except:
-        p = None
+        pass
 
     profilePlot = plt.figure()
 
@@ -86,38 +132,13 @@ def plot_output(beadshape,path,metric):
     profilePlot.savefig(output_path+'\\'+ metric+ ' Profile Bead ' + str(num) +'png')
 
 
-def plot_segmentXY(X,Y,input,units):
+def plot_segmentXY(X,Y,input,outputName, units):
     fig = plt.figure()
-    data = X[input]; plt.scatter(data,Y)
-    print(units[input])
+    data = X[input]
+    plt.scatter(data,Y)
     plt.xlabel(input + ' (' + units[input][0] + ')')
-    plt.ylabel('Height Average (mm)')
+    plt.ylabel(outputName + ' (mm)')
     fig.savefig('XY Plot' + input + '.png')
-
-def plot_timeseries(WeldData,key):
-
-    time = WeldData[key]['Time']
-    fig1, ax1 = plt.subplots()
-    ax1.set_xlabel('Time(s)')
-    ax1.set_ylabel('Voltage (V)')
-    ax1.plot(time, WeldData[key]['Welding Voltage'], color="blue", label='Voltage')
-
-
-    ax2 = ax1.twinx()
-
-    ax2.plot(time, WeldData[key]['Welding Current'], color="green", label='Current')
-    ax2.set_ylabel('Current (A)')
-
-    # ax3 = ax1.twinx()
-    #
-    # ax3.plot(time, WeldData[key]['Wire Feed Speed'], color="red", label='Wire Feed Speed')
-    # ax3.spines['right'].set_position(('outward', 60))
-    # ax3.set_ylabel('Wire Feed Speed (in/min)')
-
-    fig1.legend()
-    plt.show()
-    # fig1.savefig('Time Series\\Time_Series_' + key + '.png')
-
 
 
 def all_build_correlations(dict, units, time_series1, time_series2):
@@ -139,29 +160,6 @@ def plot_autocorr(Data, bead, *data_stream):
         plt.show()
         plt.xlabel('Lags')
         plt.ylabel(arg+' Autocorrelation')
-
-
-def plot_xy(Data, units, layer, time_series1, time_series2):
-    plt.figure()
-    plt.scatter(Data['Bead'+layer][time_series1], Data['Bead'+layer][time_series2])
-    plt.xlabel(time_series1 + units[time_series1])
-    plt.ylabel(time_series2 + units[time_series2])
-
-
-def plot_bead_data(WeldData, Audio, audio_sample_rate, bead):
-
-    time_series = ['Welding Voltage', 'Welding Current', 'Wire Feed Speed', 'Travel Speed']
-
-    plot_timeseries(WeldData, bead)
-    plot_autocorr(WeldData, bead, *time_series)
-    af.plot_audio_spectra(Audio, audio_sample_rate, bead)
-
-    for i in range(0, 3):
-
-        for j in range(1, 4):
-
-            if i is not j:
-                plot_xy(WeldData, bead, time_series[i],time_series[j])
 
 
 def plot_data_spectra(Data, bead, time_series, cut_freq):
@@ -265,19 +263,12 @@ def color_correlation(X,Y, settings, Xunit, Yunit):
     wfs = settings['WFS']
     ts = settings['Travel Speed']
     arc = settings['Arc Correction']
-
-    for i in range(0,5):
-        wfs[wfs == 100 + i*50] = i
-        ts[ts == 6 + i * 2] = i
-
-    # arc[arc == -30] = 0
-    # arc[arc == -8] = 1
-    # arc[arc == 15] = 2
+    #ctwd = settings['CTWD']
 
     wfs_levels = ['100' , '150' , '200', '250']
     ts_levels = ['6' , '8', '10' , '12']
     arc_levels = ['-30', '-8', '15']
-    X = X.drop(['Wire Feed Speed Mean', 'Wire Feed Speed Std','Travel Speed Mean'], axis = 1)
+    X = X.drop(['Wire Feed Speed Mean', 'Wire Feed Speed Std','Travel Speed'], axis = 1)
 
     for ycol in Y.columns.to_numpy():
 

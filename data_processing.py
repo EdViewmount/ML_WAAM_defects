@@ -7,23 +7,35 @@ import segmentation as seg
 import os
 import librosa
 
+from skimage.restoration import denoise_wavelet
+
 import audio_features as af
 
 
 class BeadShape:
 
-    def __init__(self,beadNum, x,Height,l,width):
+    def __init__(self,beadNum):
         self.beadNum = beadNum
-        self.x = np.array(x)
-        self.Height = np.array(Height)
-        self.l = l
-        self.width = np.array(width)
-        self.centerLineDeviation = []
+        self.x = None
+        self.Height = None
+        self.L = None
+        self.Width = None
+        self.centerLineDeviation = None
         self.peaktoval = None
         self.std = None
         self.numWindows = None
         self.overlap = None
         self.xtrim = None
+
+    def add_height(self,X,Height):
+        self.x= np.array(X)
+        self.Height = np.array(Height)
+
+    def add_width(self,L,Width,centerLineDeviation):
+        self.L = L
+        self.Width = np.array(Width)
+        self.centerLineDeviation = []
+
 
     def profile_trim(self,path,beadNum,attributeX = 'x',attributeProfile = 'Height'):
 
@@ -53,7 +65,7 @@ class BeadShape:
         L = temp.size
         lw = seg.calculate_winlength(L, overlap, num_windows)
         windowedProfile = seg.segment_axis(temp, lw, percent_overlap=overlap, end="cut")
-        #windowedProfile = np.delete(windowedProfile, num_windows - 1, 0)
+        #windowedProfile = np.delete(windowedProfile, 0, 0)
 
         setattr(self,attribute+ ' Windows',windowedProfile)
 
@@ -109,10 +121,10 @@ class BeadShape:
         xtrim = X[peakIdx]
 
         for i in range(-1, -profile.size, -1):
-            if (profile[i] > profile[i - 1]) & (profile[i] > 0.8*np.mean(profile)):
+            if (profile[i] > profile[i - 1]) & (profile[i] > 0.82*np.mean(profile)):
                 endIdx = i
                 break
-            elif profile[i] < 0.8 * np.mean(profile):
+            elif profile[i] < 0.82 * np.mean(profile):
                 continue
 
         xendtrim = X[endIdx]
@@ -124,7 +136,6 @@ class BeadShape:
         setattr(self, attributeX, X)
 
         return xtrim, xendtrim
-
 
 
 class Bead:
@@ -322,6 +333,13 @@ class Bead:
 
         del self.audio, self.lemData, self.weldData, self.meltTempStats
 
+    def denoise(self, group, waveform):
+
+        wavedict = getattr(self,group)
+        X_denoise = denoise_wavelet(wavedict[waveform], method='VisuShrink', mode='soft', wavelet_levels=3,
+                                    wavelet='sym8', rescale_sigma='True')
+        wavedict[waveform] = X_denoise
+        setattr(self,group,wavedict)
 
 class Layer:
 
@@ -449,7 +467,7 @@ def extract_tdms(path,NumPts):
 
 def extract_IR_data(path,beads,num):
     try:
-        pathBlob = path + '\\IR Data\\BlobDetection\\'
+        pathBlob = path + '\\IR Data\\Blob Detection\\'
         pathLine = path + '\\IR Data\\Line Profiles\\'
         for i in range(1, num + 1):
             beadnumstr = beadNumber(i)
@@ -519,13 +537,25 @@ def extract_tdms_layers(path,NumPts):
     return Layers
 
 
+# def standardize_data(X):
+#
+#     for (columnName, columnData) in X.iteritems():
+#         featureVector = columnData.values
+#         featureAvg = featureVector.mean()
+#         featureStd = featureVector.std()
+#         normFeature = (featureVector - featureAvg)/featureStd
+#         X[columnName] = normFeature
+#
+#     return X
+
+
 def normalize_data(X):
 
     for (columnName, columnData) in X.iteritems():
         featureVector = columnData.values
-        featureAvg = featureVector.mean()
-        featureStd = featureVector.std()
-        normFeature = (featureVector - featureAvg)/featureStd
+        featureMax = featureVector.max()
+        featureMin = featureVector.min()
+        normFeature = (featureVector - featureMin)/(featureMax - featureMin)
         X[columnName] = normFeature
 
     return X

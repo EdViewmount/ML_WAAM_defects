@@ -177,11 +177,10 @@ def classification_RFE(X, Y, metric, output_path):
 
 
 def regression_RFE(Y, X,outputPath, unitsChar,metric):
-    X = dp.normalize_data(X)
     print('RFE Function Called')
 
     try:
-        new_path = os.path.join(outputPath, metric)
+        new_path = os.path.join(outputPath, 'RF')
         os.mkdir(new_path)
     except:
         pass

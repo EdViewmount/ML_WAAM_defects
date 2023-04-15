@@ -15,15 +15,14 @@ class Segment:
 
     X = pd.DataFrame()
 
-    def __init__(self, data, bead_num, globalSegNum):
+    def __init__(self, data, bead_num, segNum):
         self.data = data
         self.predictions = 0
         self.bead_num = bead_num
-        self.globalSegNum = globalSegNum
-        self.segNum = None
+        self.segNum = segNum
 
     def assign_predictions(self,predictions):
-        idx = self.seg_num
+        idx = self.segNum - 1
         seg_pred = predictions[idx]
         self.predictions = seg_pred
 
@@ -132,7 +131,14 @@ def output_array(BeadShapes,attribute,metric, overlap,num_windows):
 
     Y = []
     for beadshape in BeadShapes:
+        beadshape.overlap = overlap
+        beadshape.numWindows = num_windows
         Y.extend(beadshape.segment(overlap,num_windows,attribute = attribute,metric = metric))
+
+        if attribute == 'Height':
+            beadshape.segment(overlap, num_windows, attribute='x', metric='Mean')
+        elif attribute == 'Width':
+            beadshape.segment(overlap, num_windows, attribute='L', metric='Mean')
 
     return Y
 
@@ -164,8 +170,6 @@ def store_segment_data(Beads, num_windows):
             Segments.append(tempSegment)
             globalNum += 1
 
-
-
     return Segments
 
 
@@ -191,13 +195,18 @@ def layer_assemble(Layers):
         y = layer.Y
 
 
-def prediction_assignment(Segments, Beads, predictions):
+def prediction_assignment(Segments, BeadShapes, predictions):
     for segment in Segments:
         segment.assign_predictions(predictions)
 
     for segment in Segments:
         bead_curr = segment.bead_num
-        Beads[bead_curr].predictions.append(segment.predictions)
+        BeadShapes[bead_curr - 1].predictions.append(segment.predictions)
+
+    return BeadShapes
+
+
+
 
 
 # def prediction_assignment(Segments,predictions):

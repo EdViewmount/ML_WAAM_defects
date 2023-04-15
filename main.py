@@ -129,12 +129,12 @@ def get_shape(NumPts,path,attribute):
 
 #Enter main problem parameters
 path = filedialog.askdirectory()
-NumPts = 43
+NumPts = 45
 outputMainPath = os.path.join(path, 'Output')
 num_windows = 10
 percent_overlap = 0.15
 attribute = 'Height'
-metric = 'Std'
+metric = 'Peak to Valley'
 
 ##############################################
 #Get Bead Shape Profiles
@@ -229,7 +229,10 @@ print('Output %s ranges from %.6f to %.6f. The range is %.6f' % (outputName,min(
 # # #######################################
 
 corr = X.corr()
-fig_corr = sns.heatmap(corr)
+
+fig_corr = plt.figure(figsize = [15,15])
+ax = fig_corr.add_subplot()
+sns.heatmap(corr , ax = ax)
 fig_corr.figure.savefig(outputMainPath+'\\Correlation_Matrix.png')
 
 columns = np.full((corr.shape[0],), True, dtype=bool)
@@ -282,8 +285,8 @@ del Beads
 
 #Run model
 
-modelType = 'NN Classify'
-nn_epochs = 700
+modelType = 'NN'
+nn_epochs = 500
 classify_epochs = 50
 lstm_epochs = 1000
 print('Model Initializing')
@@ -291,11 +294,17 @@ print('Model Initializing')
 #Y_pred = rf.classification_RFE(X, boolY,outputName,outputPath)
 #Y_pred = nn.neuralNetwork(X,Y, outputPath)
 #Y_pred = nn.neuralNetwork_classify(X,boolY,outputPath)
-#Y_pred = nn.recurrentNeuralNetwork(X,Y,NumPts,10,outputPath)
+#Y_pred = nn.recurrentNeuralNetwork(X,Y,NumPts,10,outputPath) n
 
 
 Y_pred = nn.neuralNetworkMain(X, Y, outputPath, modelType = modelType, epochs = nn_epochs ,lr = 1e-4,
-                              foldSplits = 15, numBeads = None, segsPerBead = None)
+                               foldSplits = 30, numBeads = None, segsPerBead = None)
+
+
+BeadShapes = seg.prediction_assignment(Segments,BeadShapes, Y_pred)
+
+for beadshape in BeadShapes:
+    plotting.plot_output(beadshape,outputPath,attribute,metric)
 
 # # # # if __name__ == "__main__":
 # # # #     print("Running")

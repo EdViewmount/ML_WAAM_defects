@@ -388,14 +388,17 @@ def neuralNetworkMain(X, Y, outputPath, modelType = 'NN', epochs = 700 ,lr = 1e-
 
         shap.summary_plot(shap_vals, features=X_train, feature_names=X_features, plot_type="bar", max_display=30)
         plt.savefig(outputPath + '\\Shap Values.png')
+        plt.ioff()
+        plt.close()
 
     finalScore = np.mean(cvscores)
 
     modelSummary = pd.DataFrame()
-    modelSummary['Epochs'] = 1
-    modelSummary['Learning Rate'] = 1
-    modelSummary['Final Cross Val Score'] = 1
-    modelSummary.to_csv(outputPath + '\\ModelSummary.csv')
+
+    modelSummary['Epochs'] = [epochs]
+    modelSummary['Learning Rate'] = [lr]
+    modelSummary['Cross Val Score'] = [finalScore]
+    modelSummary.to_csv(outputPath + '\\ModelSummary.csv',index = 0)
     print(modelSummary)
 
     print('Final MSE score: %.5f' % (np.mean(cvscores)))

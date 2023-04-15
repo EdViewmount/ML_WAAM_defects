@@ -22,10 +22,11 @@ class BeadShape:
         self.Width = None
         self.centerLineDeviation = None
         self.peaktoval = None
-        self.std = None
+        self.Std = None
         self.numWindows = None
         self.overlap = None
         self.xtrim = None
+        self.predictions = []
 
     def add_height(self,X,Height):
         self.x= np.array(X)
@@ -69,16 +70,28 @@ class BeadShape:
 
         setattr(self,attribute+ ' Windows',windowedProfile)
 
+        outputName = attribute + metric
+
+
         if metric == 'Mean':
             y = np.mean(windowedProfile, axis=1)
+            setattr(self,outputName,y)
 
         elif metric == 'Std':
-
             y = self.local_stdev(attribute+ ' Windows')
+            setattr(self, outputName,y)
 
         elif metric == 'Peak to Valley':
 
             y = self.peak_to_valley(attribute+ ' Windows')
+            setattr(self, outputName,y)
+
+        elif metric == 'CenterLine':
+
+            y = self.peak_to_valley(attribute+ ' Windows')
+            setattr(self, outputName,y)
+
+        delattr(self,attribute)
 
         return y
 
@@ -117,8 +130,14 @@ class BeadShape:
         X = getattr(self,attributeX)
         profile = getattr(self,attribute)
         peak = max(profile)
+
         peakIdx = np.where(profile == peak)[0][0]
         xtrim = X[peakIdx]
+
+        newXtrim = xtrim + 7
+        diff = abs(X - newXtrim)
+        startIdx = np.where(diff == min(diff))[0][0]
+        xtrim = X[startIdx]
 
         for i in range(-1, -profile.size, -1):
             if (profile[i] > profile[i - 1]) & (profile[i] > 0.82*np.mean(profile)):
@@ -129,8 +148,8 @@ class BeadShape:
 
         xendtrim = X[endIdx]
 
-        profile = profile[peakIdx:endIdx]
-        X = X[peakIdx:endIdx]
+        profile = profile[startIdx:endIdx]
+        X = X[startIdx:endIdx]
 
         setattr(self, attribute, profile)
         setattr(self, attributeX, X)

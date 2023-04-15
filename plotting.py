@@ -104,11 +104,11 @@ def plot_profile(beadshape, profileType,path):
     plt.ylabel('Height (mm)')
 
     profilePlot.savefig(output_path+'\\' + profileType+ ' Bead'+str(num)+'.png')
-
+    plt.ioff()
     plt.close()
 
 
-def plot_output(beadshape,path,metric):
+def plot_output(beadshape,path,attribute,metric):
 
     try:
         output_path = os.path.join(path, 'Output Profiles')
@@ -116,20 +116,25 @@ def plot_output(beadshape,path,metric):
     except:
         pass
 
-    profilePlot = plt.figure()
+    output = getattr(beadshape,attribute+metric)
 
-    peaktoval = beadshape.peaktoval
+    if attribute == 'Height':
+        x = getattr(beadshape,'xMean' )
+
     num = beadshape.beadNum
-    overlap = beadshape.overlap
-    num_windows = beadshape.numWindows
+    predictions = beadshape.predictions
 
-    x = beadshape.segment(overlap,num_windows,attribute = 'x',metric = 'Mean')
 
-    plt.plot(x,peaktoval)
+    outputPlot = plt.figure(figsize = [15,5])
+    plt.scatter(x,output, label = 'Actual')
+    plt.scatter(x,predictions, label = 'Predicted')
     plt.xlabel('Length (mm)')
-    plt.ylabel('Height (mm)')
+    plt.ylabel(metric+' (mm)')
+    plt.legend()
 
-    profilePlot.savefig(output_path+'\\'+ metric+ ' Profile Bead ' + str(num) +'png')
+    plt.ioff()
+
+    outputPlot.savefig(output_path+'\\'+ metric+ ' Bead' + str(num) +'png')
 
 
 def plot_segmentXY(X,Y,input,outputName, units):

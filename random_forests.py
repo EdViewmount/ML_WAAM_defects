@@ -15,70 +15,6 @@ from sklearn.metrics import mean_squared_error
 from sklearn.metrics import accuracy_score
 from sklearn.inspection import permutation_importance
 
-
-def regression_noRFE(Characterization, X, unitsChar):
-
-    for metric in Characterization:
-        Y = Characterization[metric]
-        Y_range = np.amax(Y) - np.amin(Y)
-        print(Y_range)
-
-        regressor = RandomForestRegressor(n_estimators=1000)
-        regressor.fit(X, Y)
-        cv = LeaveOneOut()
-
-        n_scores = cross_val_score(regressor, X, Y, scoring='neg_mean_absolute_error', cv=cv, n_jobs=-1)
-        predictions = cross_val_predict(regressor, X, Y, cv=cv, n_jobs=-1)
-
-        print(metric)
-        print('MAE')
-        print(n_scores)
-        print('Average:')
-        print(n_scores.mean())
-
-        from sklearn.tree import plot_tree
-
-        fig = plt.figure(figsize=(15, 10))
-        plot_tree(regressor.estimators_[0],
-                  feature_names=X.columns,
-                  filled=True, impurity=True,
-                  rounded=True)
-
-        fig.savefig('tree' + metric + '.png')
-
-        # Feature Importance
-        feat_imp_perm = permutation_importance(regressor, X, Y)
-
-        importances_df = pd.DataFrame(columns=['Feature', 'Importance'])
-        DF_features = X.columns.values.tolist()
-        importances_df['Feature'] = DF_features
-        importances_df['Importance'] = feat_imp_perm.importances_mean
-        importances_df.to_csv('Importances_ ' + metric + '.csv')
-
-        line = np.linspace(min(Y), max(Y), 30)
-        fig_plot = plt.figure()
-        plt.scatter(predictions, Y)
-        plt.plot(line, line)
-        plt.xlabel('Predicted' + unitsChar[metric])
-        plt.ylabel('Measured' + unitsChar[metric])
-        plt.title(metric)
-        fig_plot.savefig('Comparison_plot'+metric+'.png')
-
-        # arc_correction = Corrections["Arc Correction"].tolist()
-        # dynamic_correction = Corrections["Dynamic Correction"].tolist()
-        #
-        # fig_surfplot = plt.figure()
-        # ax = fig.add_subplot(projection='3d')
-        # ax.scatter(arc_correction, dynamic_correction, Y, color='red')
-        # ax.scatter(arc_correction, dynamic_correction, predictions, color='blue')
-        # ax.set_xlabel('Arc Correction')
-        # ax.set_ylabel('Dynamic Correction')
-        # ax.set_zlabel('Bead Width (mm)')
-        # fig.legend(['Actual', 'Predicted'])
-        # plt.show()
-        # fig_surfplot.savefig('3D Plot '+ metric + '.png')
-
-
 def classification_noRFE(Characterization, X, key):
 
     Y = Characterization[key]
@@ -176,18 +112,10 @@ def classification_RFE(X, Y, metric, output_path):
     summary_df.to_csv(new_path + '\\Summary_ ' + file_suffix + '.csv')
 
 
-def regression_RFE(Y, X,outputPath, unitsChar,metric):
-    print('RFE Function Called')
-
-    try:
-        new_path = os.path.join(outputPath, 'RF')
-        os.mkdir(new_path)
-    except:
-        pass
-
+def regression_RFE(X,Y,outputPath, metric):
     X_new = X
 
-    kfolds = KFold(n_splits = 10)
+    kfolds = KFold(n_splits = 23)
     kfolds.get_n_splits(X_new)
     print('Leave-One-Out Splits Acquired')
 
@@ -201,37 +129,44 @@ def regression_RFE(Y, X,outputPath, unitsChar,metric):
     summary_df = pd.DataFrame(columns=['Number of Features', 'MAE', 'Least Important Feature'])
     all_num_features, all_mae, all_least_import = list(), list(), list()
 
+    try:
+        new_path = os.path.join(outputPath, 'Feature Importance')
+        os.mkdir(new_path)
+    except:
+        pass
+
     while number_of_features >= 7:
         print('RFE Loop Iteration: %d' % counter)
 
-        y_pred, y_true = list(), list()
+        y_pred, y_true = list(),list()
 
         print('Training loop begins')
         for train_index, test_index in kfolds.split(X_new):
             X_train, X_test = X_new.iloc[train_index], X_new.iloc[test_index]
             Y_train, Y_test = Y[train_index], Y[test_index]
 
-            regressor = RandomForestRegressor(n_estimators=100, min_samples_split=3)
+            regressor = RandomForestRegressor(n_estimators=300, min_samples_leaf=3)
 
             regressor.fit(X_train, Y_train)
-            y_hat = regressor.predict(X_test)
-            y_pred.append(y_hat[0])
-            y_true.append(Y_test[0])
+            y_hat = regressor.predict(X_test).tolist()
+            y_pred.extend(y_hat)
+            y_true.extend(Y_test)
+
         print('Training loop ends')
         feat_imp = permutation_importance(regressor, X_train, Y_train)
         combined_feature_importance = feat_imp.importances_mean
         sorted_idx = combined_feature_importance.argsort()
 
-        curr_score = mean_absolute_error(y_true, y_pred)
+        curr_score = mean_squared_error(y_true, y_pred)
 
         file_suffix = metric + '_' + str(number_of_features) + "features"
-
+        print(len(y_pred))
         line = np.linspace(min(y_true), max(y_true), 30)
         comp_plot = plt.figure()
         plt.scatter(y_true, y_pred)
         plt.plot(line, line)
-        plt.xlabel('Measured' + unitsChar[metric])
-        plt.ylabel('Predicted' + unitsChar[metric])
+        plt.xlabel('Measured (mm)')
+        plt.ylabel('Predicted (mm)')
         comp_plot.savefig(new_path + '\\CompPlot_' + file_suffix + '.png')
 
         importances_df = pd.DataFrame(columns=['Feature', 'Importance'])
@@ -246,7 +181,7 @@ def regression_RFE(Y, X,outputPath, unitsChar,metric):
         all_mae.append(curr_score)
         all_least_import.append(least_valuable_feature)
 
-        new_score = mean_absolute_error(y_true, y_pred)
+        new_score = mean_squared_error(y_true, y_pred)
         print('Iteration %d......Current score: %.5f' % (counter, curr_score))
         print("Current Number of features %d" % number_of_features)
         X_features = X_new.columns.to_numpy()
@@ -260,6 +195,8 @@ def regression_RFE(Y, X,outputPath, unitsChar,metric):
     summary_df['MAE'] = all_mae
     summary_df['Least Important Feature'] = all_least_import
     summary_df.to_csv(new_path + '\\Summary_ ' + file_suffix + '.csv')
+
+    return y_pred
 
 
 def multimetric_regression(Characterization, X, unitsChar):

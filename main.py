@@ -5,95 +5,13 @@ import seaborn as sns
 import os
 
 import plotting
-import audio_features as af
+
 import random_forests as rf
 import data_processing as dp
 import segmentation as seg
 import neural_network as nn
-import global_model as gm
 
-from tkinter import *
 from tkinter import filedialog
-
-
-def difference(x):
-    i=0
-    diff=[]
-
-    for i in range(0,len(x),4):
-
-        if i < len(x) - 4:
-            diff.append(x[i + 4] - x[i])
-    diff = np.array(diff)
-
-    return diff
-
-
-def down_sample(t, n):
-    i=0
-    t_new = []
-
-    for i in range(0,len(t), n):
-
-        if i < len(t) - n:
-            t_new.append(t[i])
-
-    t_new = np.array(t_new)
-
-    return t_new
-
-
-def calculate_speed(RobotData):
-
-    for key in RobotData:
-        tempdata = RobotData[key]
-        t = tempdata['Time']
-        x = tempdata["Robot X"]
-        y = tempdata["Robot Y"]
-        z = tempdata["Robot Z"]
-
-        dt = difference(t)
-        dx = difference(x)
-        dy = difference(y)
-        dz = difference(z)
-
-        vx = np.zeros(dx.shape, float)
-        vy = np.zeros(dy.shape, float)
-        vz = np.zeros(dz.shape, float)
-
-        vx = dx/dt
-        vy = dy / dt
-        vz = dz / dt
-
-        v_mag = np.sqrt(vx**2 + vy**2 + vz**2) *(60/24.5)
-
-        np.size(v_mag)
-
-        tempdata["Travel Speed"] = v_mag
-
-        RobotData[key] = tempdata
-
-    return RobotData
-
-
-def on_click(text):
-
-    #mode.set(text)
-
-    return 0;
-
-
-def output_classify(Y, cutoff):
-    booleanArray = []
-
-    for y in Y:
-
-        if y > cutoff:
-            booleanArray.append(1)
-        else:
-            booleanArray.append(0)
-
-    return booleanArray
 
 
 def get_shape(NumPts,path,attribute):
@@ -113,39 +31,38 @@ def get_shape(NumPts,path,attribute):
             dataWidth = pd.read_csv(path + '\\Width and Centerline\\Bead' + str(i) + wfilename)
             L = dataWidth['Length'].tolist()
             Width = dataWidth['Width'].tolist()
-            CtrLineDeviation = dataWidth['CenterLineDeviation']
-            tempBead.add_width(L, Width)
-            del dataWidth, L, Width, CtrLineDeviation
+            CenterLineDeviation = dataWidth['CenterLineDeviation']
+            tempBead.add_width(L, Width,CenterLineDeviation)
+            del dataWidth, L, Width, CenterLineDeviation
 
         BeadShapes.append(tempBead)
 
     return BeadShapes
 
-# def main():
-
 #Main Program
-
-#Xunits = pd.read_csv(path+'\\Xunits.csv')
 
 #Enter main problem parameters
 path = filedialog.askdirectory()
-NumPts = 45
 outputMainPath = os.path.join(path, 'Output')
+
+
+attribute = 'Height'
+metric = 'Std'
+heightMetrics = ['Mean','Std','Peak to Valley']
+widthMetrics = ['Mean','CenterLine']
+
+
+NumPts = 43
+
 num_windows = 10
 percent_overlap = 0.15
-attribute = 'Height'
-metric = 'Peak to Valley'
+
 
 ##############################################
 #Get Bead Shape Profiles
 ###########################################
 
 BeadShapes = get_shape(NumPts, path, attribute)
-
-# mode = StringVar()
-# win = Tk()
-# b1= Button(win, text= "Plotting", command = on_click("Plotting")).pack()
-# b2= Button(win, text= "Modeling", command = on_click("Modeling")).pack()
 
 ##################################################################
 # Extract from TDMS
@@ -157,6 +74,8 @@ Settings = pd.read_csv(path + '\\Settings.csv')
 Beads = dp.extract_labview(path,NumPts)
 #Extract IR data from csv files
 Beads = dp.extract_IR_data(path,Beads,NumPts)
+#Extract feature units
+units = pd.read_csv(path + '\\feature units.csv')
 
 #################################
 #Denoise Waveforms
@@ -167,18 +86,10 @@ for bead in Beads:
     #bead.denoise('lemData', 'Welding Current')
     bead.denoise('audio', 'Audio')
 
-#########################################
-#Plotting
-#########################################
-
 #Plot bead profiles prior to pre-processing
-# for beadshape in BeadShapes:
-#     plotting.plot_profile(beadshape,'Height Profile',outputMainPath)
+for beadshape in BeadShapes:
+    plotting.plot_profile(beadshape,'Height Profile',outputMainPath)
 
-# for bead in Beads:
-#     plotting.plot_spectrograms(bead,outputMainPath, percent_overlap, num_windows, sr = 22050, group = 'audio', waveform = 'Audio')
-    #plotting.plot_spectrograms(bead, outputMainPath, percent_overlap, num_windows, sr=20000, group='lemData', waveform='Welding Voltage')
-    #plotting.plot_spectrograms(bead, outputMainPath, percent_overlap, num_windows, sr=20000, group='lemData', waveform='Welding Current')
 
 ############################################################
 #Pre-processing
@@ -186,20 +97,36 @@ for bead in Beads:
 
 for bead in Beads:
     i = bead.number
+    print(i)
+
     bead.add_settings(Settings.iloc[i-1,:])
     bead.remove_prepost_time()
-    xtrim, xendtrim = BeadShapes[i-1].trim_slopes('Height','x')
-    bead.trim_profile_time(xtrim,xendtrim)
 
-# #Plot bead profiles after trimming
-# for beadshape in BeadShapes:
-#     plotting.plot_profile(beadshape,'Trimmed Height Profile',outputMainPath)
+    if attribute == 'Height':
+        xtrim, xendtrim = BeadShapes[i - 1].trim_slopes('Height', 'x')
+        bead.trim_profile_time(xtrim, xendtrim)
+
+
+#########################################
+#Plotting
+#########################################
+
+#Plot bead profiles after trimming
+for beadshape in BeadShapes:
+    plotting.plot_profile(beadshape,'Trimmed Height Profile',outputMainPath)
+
+for bead in Beads:
+    plotting.plot_spectrograms(bead,outputMainPath, percent_overlap, num_windows, sr = 22050, group = 'audio', waveform = 'Audio')
+    plotting.plot_spectrograms(bead, outputMainPath, percent_overlap, num_windows, sr=20000, group='lemData', waveform='Welding Voltage')
+    plotting.plot_spectrograms(bead, outputMainPath, percent_overlap, num_windows, sr=20000, group='lemData', waveform='Welding Current')
+
+
+for bead in Beads:
+    plotting.plot_timeseries(bead,outputMainPath,'weldData','lemData','audio','meltTemps')
 
 # ############################################
 # # Create data frame and output dictionary
 # ##########################################
-
-# # X, Characterization = gm.structure_data(WeldData,LEMData, Beads, Audio, path)WHI
 
 outputName = attribute + ' ' + metric
 
@@ -209,17 +136,31 @@ try:
 except:
     pass
 
-
 X,Y, Segments = seg.segment_assemble(Beads, BeadShapes, num_windows, percent_overlap, attribute = attribute, metric = metric)
+X = X.drop('Wire Feed Speed Kurt',axis = 1)
 
-# for (columnName, columnData) in X.iteritems():
-#
-#     try:
-#         dist_path = os.path.join(outputMainPath, 'Feature Distributions')
-#         os.mkdir(dist_path)
-#     except:
-#         pass
-#     plotting.plot_histogram(columnData,columnName,dist_path)
+#Plot feature correlations with respect to output
+for (columnName, columnData) in X.iteritems():
+    plotting.plot_segmentXY(X, Y, columnName, outputName, outputPath,units)
+
+#Obtain basic stats about output metric
+Y = np.array(Y)
+Y_stats = pd.DataFrame(columns = ['Mean','Range','Max','Min'])
+Y_stats['Mean'] = [np.mean(Y)]
+Y_stats['Range'] = [max(Y) - min(Y)]
+Y_stats['Max'] = [max(Y)]
+Y_stats['Min'] = [min(Y)]
+Y_stats.to_csv(outputPath + '\\output_stats.csv')
+
+#Plot Feature Distributions
+for (columnName, columnData) in X.iteritems():
+
+    try:
+        dist_path = os.path.join(outputMainPath, 'Feature Distributions')
+        os.mkdir(dist_path)
+    except:
+        pass
+    plotting.plot_histogram(columnData,columnName,dist_path)
 
 print('Output %s ranges from %.6f to %.6f. The range is %.6f' % (outputName,min(Y), max(Y), (max(Y)-min(Y))))
 
@@ -228,15 +169,18 @@ print('Output %s ranges from %.6f to %.6f. The range is %.6f' % (outputName,min(
 # # #Eliminate Highly Correlated Features
 # # #######################################
 
+#Compute correlation matrix
 corr = X.corr()
-
-fig_corr = plt.figure(figsize = [15,15])
+plt.rcParams.update({'font.size': 27})
+fig_corr = plt.figure(figsize = [35,35])
 ax = fig_corr.add_subplot()
 sns.heatmap(corr , ax = ax)
 fig_corr.figure.savefig(outputMainPath+'\\Correlation_Matrix.png')
 
 columns = np.full((corr.shape[0],), True, dtype=bool)
 cols = X.columns.tolist()
+
+
 # Remove one of every pair of columns that are 95% correlated
 print("Dropping data points that are 95% correlated to existing data:")
 for i in range(corr.shape[0]):
@@ -250,62 +194,81 @@ for i in range(corr.shape[0]):
                 elif columns[j]:
                     columns[j] = True
 
-# if mode == 'Plotting':
-#     v =  1
-# elif mode == 'Modeling':
-#     v = 2
-
 # ############################
 # ##Machine Learning Model ###
 # ############################
-
-# # # Y = Characterization['Porosity']
-# # # por_idx = [i for i in range(len(Y)) if Y[i] == 1]
-# # # X = X.drop(por_idx)
-# #Y_std = seg.output_array(BeadShapes,'z','Std', percent_overlap,num_windows)
-# # plt.figure()
-# # plt.scatter(Y,Y_std)
-
-# #Create classification problem
-Y = np.array(Y)
 n,bins = plotting.plot_histogram(Y,outputName, outputPath)
-
-#freqSplitIdx = np.where(n == 20)
-binCutoff = 0.22593
-boolY = output_classify(Y, binCutoff)
-n_true = sum(boolY)
-p_true = n_true/len(boolY)
-print('Percent of Y that is true: %.3f' % p_true)
-classifyDataframe = pd.DataFrame()
-classifyDataframe['Peak to Valley (mm)'] = Y
-classifyDataframe['>  0.1872'] = boolY
-boolY = np.array(boolY)
 
 del Beads
 
 #Run model
 
-modelType = 'NN'
-nn_epochs = 500
+modelType = 'LSTM'
+nn_epochs = 1600
 classify_epochs = 50
-lstm_epochs = 1000
+lstm_epochs = 10
+
+
+if modelType == 'LSTM':
+    segsPerBead = 10
+    numBeads = NumPts
+else:
+    segsPerBead = None
+    numBeads = None
 print('Model Initializing')
-#rf.regression_RFE(Y, X, unitsChar,'Bead Height')
-#Y_pred = rf.classification_RFE(X, boolY,outputName,outputPath)
-#Y_pred = nn.neuralNetwork(X,Y, outputPath)
-#Y_pred = nn.neuralNetwork_classify(X,boolY,outputPath)
-#Y_pred = nn.recurrentNeuralNetwork(X,Y,NumPts,10,outputPath) n
 
 
-Y_pred = nn.neuralNetworkMain(X, Y, outputPath, modelType = modelType, epochs = nn_epochs ,lr = 1e-4,
-                               foldSplits = 30, numBeads = None, segsPerBead = None)
+try:
+    ml_outputPath = os.path.join(outputPath, modelType)
+    os.mkdir(ml_outputPath)
+except:
+    pass
 
+if modelType == 'RF':
+    Y_pred = rf.regression_RFE(X, Y, ml_outputPath, outputName)
+else:
+    Y_pred = nn.neuralNetworkMain(X, Y, ml_outputPath, modelType=modelType, epochs=nn_epochs, lr=1e-4,
+                                   foldSplits = 25, numBeads = numBeads, segsPerBead = segsPerBead)
 
 BeadShapes = seg.prediction_assignment(Segments,BeadShapes, Y_pred)
 
 for beadshape in BeadShapes:
-    plotting.plot_output(beadshape,outputPath,attribute,metric)
+    plotting.plot_output(beadshape,ml_outputPath,attribute,metric)
 
-# # # # if __name__ == "__main__":
-# # # #     print("Running")
-# # # #     main()
+
+main(path, 'Peak to Valley', 'Height')
+
+
+# for metric in widthMetrics:
+#     main(path,metric,'Width')
+
+# for modelType in Models:
+#
+#     nn_epochs = 1000
+#
+#     if modelType == 'LSTM':
+#         segsPerBead = 10
+#         numBeads = NumPts
+#     else:
+#         segsPerBead = None
+#         numBeads = None
+#     print('Model Initializing')
+#
+#
+#     try:
+#         ml_outputPath = os.path.join(outputPath, modelType)
+#         os.mkdir(ml_outputPath)
+#     except:
+#         pass
+#
+#
+#     if modelType  ==  'RF':
+#         Y_pred = rf.regression_RFE(X, Y, ml_outputPath, outputName)
+#     else:
+#         Y_pred = nn.neuralNetworkMain(X, Y, ml_outputPath, modelType=modelType, epochs=nn_epochs, lr=1e-4,
+#                                       foldSplits=23, numBeads=numBeads, segsPerBead=segsPerBead)
+#
+#     BeadShapes = seg.prediction_assignment(Segments,BeadShapes, Y_pred)
+#
+#     for beadshape in BeadShapes:
+#         plotting.plot_output(beadshape,outputPath,attribute,metric)

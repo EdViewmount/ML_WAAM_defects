@@ -18,20 +18,41 @@ def plot_main():
     plotMenu.title('Plotting Menu')
 
 
-def plot_timeseries(X,outputMainPath):
-    values = X.values
+def plot_timeseries(bead,outputMainPath,*data_group):
+
+    try:
+        output_path = os.path.join(outputMainPath,'Time Series')
+        os.mkdir(output_path)
+    except:
+        pass
+
+
+    beadNum = bead.number
     # specify columns to plot
-    groups = [0, 1, 2, 3, 5, 6, 7]
     i = 1
     # plot each column
-    time_series = plt.figure()
-    for group in groups:
-        plt.subplot(len(groups), 1, i)
-        plt.plot(values[:, group])
-        plt.title(X.columns[group], y=0.5, loc='right')
-        i += 1
+    plt.rcParams.update({'font.size': 25})
+    time_series = plt.figure(figsize = [30,47])
+    units = pd.read_csv(outputMainPath + '\\Time series units.csv')
+
+    for arg in data_group:
+        group = getattr(bead,arg)
+        time = group['Time']
+
+        for key in group:
+            if key == 'Time':
+                continue
+            plt.subplot(5, 1, i)
+            plt.plot(time,group[key])
+            plt.xlabel('Time (s)')
+            ylabel = key + ' ' + units[key].values
+            plt.ylabel(ylabel[0])
+            plt.title(key, loc='center')
+            i += 1
+
     plt.show()
-    time_series.savefig(outputMainPath)
+    time_series.savefig(output_path+ '\\Time Series Bead' + str(beadNum) + '.png')
+    plt.close()
 
 
 def plot_spectrograms(bead, outputMainPath,percent_overlap,num_windows, sr = 22050, group = 'audio', waveform = 'Audio'):
@@ -63,7 +84,7 @@ def plot_spectrograms(bead, outputMainPath,percent_overlap,num_windows, sr = 220
 
 
 def plot_histogram(Y,metric,outputPath):
-
+    plt.rcParams.update({'font.size': 16})
     hist = plt.figure()
 
     Y = np.array(Y)
@@ -86,14 +107,16 @@ def plot_histogram(Y,metric,outputPath):
 
 
 def plot_profile(beadshape, profileType,path):
-
+    plt.rcParams.update({'font.size': 24})
     try:
         output_path = os.path.join(path,profileType)
         os.mkdir(output_path)
     except:
         pass
 
-    profilePlot = plt.figure(figsize= [15,5])
+
+
+    profilePlot = plt.figure(figsize= [20,7])
 
     z = beadshape.Height
     x = beadshape.x
@@ -111,7 +134,7 @@ def plot_profile(beadshape, profileType,path):
 def plot_output(beadshape,path,attribute,metric):
 
     try:
-        output_path = os.path.join(path, 'Output Profiles')
+        output_path = os.path.join(path, 'Output Profiles (no predictions)')
         os.mkdir(output_path)
     except:
         pass
@@ -120,30 +143,44 @@ def plot_output(beadshape,path,attribute,metric):
 
     if attribute == 'Height':
         x = getattr(beadshape,'xMean' )
+    elif attribute == 'Width':
+        x = getattr(beadshape,'LMean')
 
     num = beadshape.beadNum
     predictions = beadshape.predictions
 
-
-    outputPlot = plt.figure(figsize = [15,5])
-    plt.scatter(x,output, label = 'Actual')
-    plt.scatter(x,predictions, label = 'Predicted')
+    plt.rcParams.update({'font.size': 24})
+    outputPlot = plt.figure(figsize = [20,7])
+    plt.scatter(x,output, label = 'Actual',s = 150)
+    #plt.scatter(x,predictions, label = 'Predicted',s = 150)
     plt.xlabel('Length (mm)')
     plt.ylabel(metric+' (mm)')
     plt.legend()
 
-    plt.ioff()
-
     outputPlot.savefig(output_path+'\\'+ metric+ ' Bead' + str(num) +'png')
+    plt.clf()
+    plt.close()
 
 
-def plot_segmentXY(X,Y,input,outputName, units):
-    fig = plt.figure()
+def plot_segmentXY(X,Y,input,outputName, outputPath, units):
+    plt.rcParams.update({'font.size': 18})
+
+    try:
+        plot_path = os.path.join(outputPath, 'XY Plots')
+        os.mkdir(plot_path)
+    except:
+        pass
+
+    fig = plt.figure(figsize = [8,8])
     data = X[input]
     plt.scatter(data,Y)
-    plt.xlabel(input + ' (' + units[input][0] + ')')
+    xlabel = units[input].values[0]
+    print(xlabel)
+    plt.xlabel(input + ' (' + xlabel + ')')
     plt.ylabel(outputName + ' (mm)')
-    fig.savefig('XY Plot' + input + '.png')
+    fig.savefig(plot_path+ '\\' + 'XY Plot' + input + '.png')
+    plt.clf()
+    plt.close()
 
 
 def all_build_correlations(dict, units, time_series1, time_series2):

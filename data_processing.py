@@ -4,7 +4,6 @@ import pandas as pd
 import math
 from math import floor
 import segmentation as seg
-import os
 import librosa
 
 from skimage.restoration import denoise_wavelet
@@ -20,7 +19,7 @@ class BeadShape:
         self.Height = None
         self.L = None
         self.Width = None
-        self.centerLineDeviation = None
+        self.CenterLine = None
         self.peaktoval = None
         self.Std = None
         self.numWindows = None
@@ -32,28 +31,24 @@ class BeadShape:
         self.x= np.array(X)
         self.Height = np.array(Height)
 
-    def add_width(self,L,Width,centerLineDeviation):
-        self.L = L
+    def add_width(self,L,Width,CenterLine):
+        self.L = np.array(L)
         self.Width = np.array(Width)
-        self.centerLineDeviation = []
-
+        self.CenterLine = CenterLine
 
     def profile_trim(self,path,beadNum,attributeX = 'x',attributeProfile = 'Height'):
 
-        x = np.array(getattr(self,attributeX))
-        z = np.array(getattr(self,attributeProfile))
+        x = getattr(self,attributeX)
+        z = getattr(self,attributeProfile)
 
         startEndPts = pd.read_csv(path + '\\Start end points.csv')
         start = startEndPts['Start'][beadNum - 1]
         end = startEndPts['End'][beadNum - 1]
 
-        start_idx = np.where(x < start)
-        end_idx = np.where(x > end)
+        filter_idx = np.where(np.logical_and(x >= start, x <= end))
 
-        filter_idx = np.concatenate((start_idx, end_idx), axis=None)
-
-        z = np.delete(z, [filter_idx])
-        x = np.delete(x, [filter_idx])
+        z = z[filter_idx]
+        x = x[filter_idx]
 
         x = x - min(x)
 
@@ -61,17 +56,21 @@ class BeadShape:
         setattr(self,attributeProfile,z)
 
     def segment(self,overlap,num_windows,attribute = 'Height',metric = 'Mean'):
-        temp = getattr(self,attribute)
+
+        outputName = attribute + metric
+
+        if metric == 'CenterLine':
+            temp = getattr(self, metric)
+            attribute = metric
+        else:
+            temp = getattr(self, attribute)
+
         temp = temp[np.isfinite(temp)]
         L = temp.size
         lw = seg.calculate_winlength(L, overlap, num_windows)
         windowedProfile = seg.segment_axis(temp, lw, percent_overlap=overlap, end="cut")
-        #windowedProfile = np.delete(windowedProfile, 0, 0)
 
         setattr(self,attribute+ ' Windows',windowedProfile)
-
-        outputName = attribute + metric
-
 
         if metric == 'Mean':
             y = np.mean(windowedProfile, axis=1)
@@ -88,7 +87,7 @@ class BeadShape:
 
         elif metric == 'CenterLine':
 
-            y = self.peak_to_valley(attribute+ ' Windows')
+            y = self.local_stdev(metric+ ' Windows')
             setattr(self, outputName,y)
 
         delattr(self,attribute)
@@ -115,6 +114,7 @@ class BeadShape:
     def peak_to_valley(self,attribute):
 
         windowedProfile = getattr(self, attribute)
+        windowedProfile = windowedProfile
         peak2valley = []
 
         for window in windowedProfile:
@@ -129,9 +129,12 @@ class BeadShape:
     def trim_slopes(self,attribute,attributeX):
         X = getattr(self,attributeX)
         profile = getattr(self,attribute)
-        peak = max(profile)
+
+        peak = max(profile[0:floor((profile.size)/2)])
+
 
         peakIdx = np.where(profile == peak)[0][0]
+
         xtrim = X[peakIdx]
 
         newXtrim = xtrim + 7
@@ -172,14 +175,16 @@ class Bead:
         self.robData = robData
         self.audio = audio
 
+        self.meltTemps = None
+        self.lineProfile = None
+        self.baseTemp = None
+
         self.travelSpeed = None
         self.wfs = None
         self.arcCorrection = None
         self.ctwd = None
         self.arcCorrection = None
-        self.meltTemps = None
-        self.lineProfile = None
-        self.baseTemp = None
+
 
         self.predictions = []
         self.segments = []
@@ -188,7 +193,7 @@ class Bead:
         self.allBeadStats = None
         self.lemDataStats = {}
         self.weldDataStats = {}
-        self.meltPoolStats = {}
+        self.meltTempStats = {}
 
     def add_settings(self,settings):
         self.travelSpeed = settings['Travel']
@@ -215,8 +220,8 @@ class Bead:
         endTime = time[-1]
         del time
         meltTime = np.linspace(startTime,endTime,numSamples)
-        meltTemps['Melt Pool Temperature'] = meltPoolVals
-        meltTemps['Time'] = meltTime
+        meltTemps['Melt Pool Temperature'] = np.array(meltPoolVals)
+        meltTemps['Time'] = np.array(meltTime)
 
         self.meltTemps = meltTemps
 
@@ -245,17 +250,21 @@ class Bead:
         robotZ = self.robData['Robot Z']
         time = self.robData['Time']
 
-        for i in range(0, len(robotY)):
-            if robotY[i] != robotY[i + 1]:
+        travelDirection = robotY
+        print(len(travelDirection))
+        for i in range(0, len(travelDirection)):
+            if travelDirection[i] != travelDirection[i + 1]:
                 startIdx = i
                 break
-        for i in range(-1, -len(robotY), -1):
-            if robotY[i] != robotY[i - 1]:
+        for i in range(-1, -len(travelDirection), -1):
+            if travelDirection[i] != travelDirection[i - 1]:
                 endIdx = i
                 break
 
-        robotY = robotY[startIdx:endIdx]
-        robotY = robotY - min(robotY)
+        travelDirection = travelDirection[startIdx:endIdx]
+        travelDirection = travelDirection - min(travelDirection)
+
+        robotY = travelDirection
 
         self.robData['Robot Y'] = robotY
         self.robData['Robot X'] = robotX[startIdx:endIdx]
@@ -269,9 +278,22 @@ class Bead:
 
         del time
 
+        timeAudio = af.add_time(self.audio['Audio'], endTime + 0.5)
+        self.audio['Time'] = np.array(timeAudio)
+        del timeAudio
+
+        try:
+            N_melt = self.meltTemps['Melt Pool Temperature'].size
+            meltTime = np.linspace(startTime, endTime + 0.5, N_melt)
+            self.meltTemps['Time'] = np.array(meltTime)
+            del meltTime
+            self.meltTemps = trim_times(startTime, endTime, self.meltTemps)
+
+        except:
+            pass
+
         self.weldData = trim_times(startTime, endTime, self.weldData)
         self.lemData = trim_times(startTime, endTime, self.lemData)
-        self.meltTemps = trim_times(startTime, endTime, self.meltTemps)
         self.audio = trim_times(startTime, endTime, self.audio)
 
     def trim_profile_time(self,xtrim,xendtrim):
@@ -279,6 +301,9 @@ class Bead:
         robotY = self.robData['Robot Y']
         time = self.robData['Time']
         diffStart = abs(robotY - xtrim)
+
+        print(xtrim,xendtrim)
+        print(robotY[-1])
         idxStart= np.where(diffStart == min(diffStart))[0][0]
 
         diffEnd = abs(robotY - xendtrim)
@@ -287,10 +312,16 @@ class Bead:
         startTime = time[idxStart]
         endTime = time[idxEnd]
 
+        try:
+            self.meltTemps = trim_times(startTime, endTime, self.meltTemps)
+        except:
+            pass
+
+
         self.weldData = trim_times(startTime, endTime, self.weldData)
         self.lemData = trim_times(startTime, endTime, self.lemData)
-        self.meltTemps = trim_times(startTime, endTime, self.meltTemps)
         self.audio = trim_times(startTime, endTime, self.audio)
+
 
     def filter_blips(self):
 
@@ -339,18 +370,33 @@ class Bead:
 
 
         # Delete unwanted items from bead object
-        self.delete_item('weldData', 'Motor Current', 'Time')
+        self.delete_item('weldData', 'Time')
         self.delete_item('lemData', 'Time')
-        self.delete_item('meltTemps', 'Time')
+
+        try:
+            meltTempStats = {}
+            self.delete_item('meltTemps', 'Time')
+            meltTempWindows = \
+            seg.segment_axis(self.meltTemps['Melt Pool Temperature'], num_windows, percent_overlap=percent_overlap,
+                             end="cut")[0]
+            meltTempStats['Melt Pool Temperature'] = meltTempWindows
+            self.meltTempStats = meltTempStats
+            self.meltTempStats
+        except:
+            pass
+
 
         # Window the rest of data and store back into object
-        self.lemDataStats = seg.data_split_stats(self.lemData, percent_overlap, num_windows)
+        self.lemDataStats = seg.arc_features(self.lemData, percent_overlap, num_windows)
         self.weldDataStats = seg.data_split_stats(self.weldData, percent_overlap, num_windows)
-        self.meltTempStats = seg.data_split_stats(self.meltTemps, percent_overlap, num_windows)
 
-        self.merge_data('lemDataStats','weldDataStats')
 
-        del self.audio, self.lemData, self.weldData, self.meltTempStats
+        try:
+            self.merge_data('lemDataStats','weldDataStats','meltTempStats')
+        except:
+            self.merge_data('lemDataStats', 'weldDataStats')
+
+        del self.audio, self.lemData, self.weldData
 
     def denoise(self, group, waveform):
 
@@ -359,6 +405,128 @@ class Bead:
                                     wavelet='sym8', rescale_sigma='True')
         wavedict[waveform] = X_denoise
         setattr(self,group,wavedict)
+
+
+def beadNumber(i):
+    if i < 10:
+        beadnumstr = "0" + str(i)
+    else:
+        beadnumstr = str(i)
+
+    return beadnumstr
+
+
+def get_LEMtime(data):
+    time = []
+    sample_rate = 20000
+    n_samples = len(data['Welding Voltage'])
+    dt = 1/sample_rate
+
+    for i in range(1,n_samples+1):
+        time.append(dt*i)
+
+    return time
+
+
+def extract_IR_data(path,beads,num):
+    try:
+        pathBlob = path + '\\IR Data\\Blob Detection\\'
+        pathLine = path + '\\IR Data\\Line Profiles\\'
+        for i in range(1, num + 1):
+            beadnumstr = beadNumber(i)
+
+            filenameLine = 'Bead' + beadnumstr + '_basetemp'
+            filenameBlob = 'Bead' + beadnumstr + '_BlobDetection'
+
+            temp_dfLine = pd.read_csv(pathLine + filenameLine + '.csv')
+            temp_dfBlob = pd.read_csv(pathBlob + filenameBlob + '.csv')
+
+            blobTemps = temp_dfBlob['TemperatureMean'].values
+            lineTemps = temp_dfLine['Bead' + beadnumstr + '.seq:Line 1 [C]:mean:vert'].values
+
+            beads[i - 1].add_infrared(blobTemps, lineTemps)
+    except:
+        pathLine = path + '\\IR Data\\Line Profiles\\'
+        for i in range(1, num + 1):
+            beadnumstr = beadNumber(i)
+            filenameLine = 'Bead' + beadnumstr + '_basetemp'
+            temp_dfLine = pd.read_csv(pathLine + filenameLine + '.csv')
+            lineTemps = temp_dfLine['Bead' + beadnumstr + '.seq:Line 1 [C]:mean:vert'].values
+            beads[i - 1].add_line_profile(lineTemps)
+
+    return beads
+
+
+def normalize_data(X):
+
+    for (columnName, columnData) in X.iteritems():
+        featureVector = columnData.values
+        featureMax = featureVector.max()
+        featureMin = featureVector.min()
+        normFeature = (featureVector - featureMin)/(featureMax - featureMin)
+        X[columnName] = normFeature
+
+    return X
+
+
+def trim_times(startTime,endTime,data):
+
+    time = data['Time']
+
+    idx = np.where(np.logical_and(time >= startTime, time <= endTime))[0]
+
+    for key in data:
+        series = data[key]
+        data[key] = series[idx]
+    return data
+
+
+def extract_labview(path,NumPts):
+
+    beads = []
+
+    for i in range(1, NumPts+1):
+
+        TempRobData = {}
+        TempWeldData = {}
+        TempLEMData = {}
+        Audio = {}
+
+        beadnumstr = beadNumber(i)
+        beadPath = path+'\\LabVIEW\\Bead' + beadnumstr
+
+        temp_file = TdmsFile.read(beadPath + '\\Bead01.tdms')
+
+        RobGroup = temp_file["Robot Data"]
+        WeldGroup = temp_file["Welding Data"]
+        LEMGroup = temp_file['LEM Box']
+
+        for channel in RobGroup.channels():
+            TempRobData[channel.name] = channel[:]
+
+        for channel in LEMGroup.channels():
+            TempLEMData[channel.name] = np.array(channel[:])
+
+        for channel in WeldGroup.channels():
+            TempWeldData[channel.name] = np.array(channel[:])
+
+        LEMtime = get_LEMtime(TempLEMData)
+        TempLEMData['Time'] = np.array(LEMtime)
+        del TempWeldData['Motor Current']
+        #Get Audio
+        tempAudio, SR = none = librosa.load(beadPath + '\\Bead01.wav')
+        tempAudio = af.clipEndAudio(tempAudio)
+
+
+        Audio['Audio'] = tempAudio
+        beads.append(Bead(i, TempLEMData, TempWeldData, TempRobData, Audio))
+        del tempAudio
+
+    return beads
+
+########################################
+#Layers
+######################################
 
 class Layer:
 
@@ -392,7 +560,10 @@ class Layer:
 
         prevBool = 1
 
-        startIdx,endIdx = find_time_idx(self.globalTime, startTime, endTime)
+        idx = np.where(np.logical_and(self.globalTime >= startTime, self.globalTime <= endTime))
+        startIdx = idx[0]
+        endIdx = idx[-1]
+        del idx
 
         beadStartTime = []
         beadEndTime = []
@@ -428,91 +599,6 @@ class Layer:
         self.X, self.Y = seg.segment_assemble(self.beads, BeadShape,num_windows,percent_overlap)
 
 
-def beadNumber(i):
-    if i < 10:
-        beadnumstr = "0" + str(i)
-    else:
-        beadnumstr = str(i)
-
-    return beadnumstr
-
-
-def get_LEMtime(data):
-    time = []
-    sample_rate = 20000
-    n_samples = len(data['Welding Voltage'])
-    dt = 1/sample_rate
-
-    for i in range(1,n_samples+1):
-        time.append(dt*i)
-
-    return time
-
-
-def extract_tdms(path,NumPts):
-
-    beads = []
-
-    for i in range(1, NumPts+1):
-
-        TempRobData = {}
-        TempWeldData = {}
-        TempLEMData = {}
-
-        beadnumstr = beadNumber(i)
-
-        temp_file = TdmsFile.read(path + '\\LabVIEW\\Bead' + beadnumstr + '\\Bead01.tdms')
-
-        RobGroup = temp_file["Robot Data"]
-        WeldGroup = temp_file["Welding Data"]
-        LEMGroup = temp_file['LEM Box']
-
-        for channel in RobGroup.channels():
-            TempRobData[channel.name] = channel[:]
-
-        for channel in LEMGroup.channels():
-            TempLEMData[channel.name] = channel[:]
-
-        for channel in WeldGroup.channels():
-            TempWeldData[channel.name] = channel[:]
-
-        LEMtime = get_LEMtime(TempLEMData)
-        TempLEMData['Time'] = LEMtime
-
-        beads.append(Bead(i,TempLEMData,TempWeldData,TempRobData))
-
-    return beads
-
-
-def extract_IR_data(path,beads,num):
-    try:
-        pathBlob = path + '\\IR Data\\Blob Detection\\'
-        pathLine = path + '\\IR Data\\Line Profiles\\'
-        for i in range(1, num + 1):
-            beadnumstr = beadNumber(i)
-
-            filenameLine = 'Bead' + beadnumstr + '_basetemp'
-            filenameBlob = 'Bead' + beadnumstr + '_BlobDetection'
-
-            temp_dfLine = pd.read_csv(pathLine + filenameLine + '.csv')
-            temp_dfBlob = pd.read_csv(pathBlob + filenameBlob + '.csv')
-
-            blobTemps = temp_dfBlob['TemperatureMean'].values
-            lineTemps = temp_dfLine['Bead' + beadnumstr + '.seq:Line 1 [C]:mean:vert'].values
-
-            beads[i - 1].add_infrared(blobTemps, lineTemps)
-    except:
-        pathLine = path + '\\IR Data\\Line Profiles\\'
-        for i in range(1, num + 1):
-            beadnumstr = beadNumber(i)
-            filenameLine = 'Bead' + beadnumstr + '_basetemp'
-            temp_dfLine = pd.read_csv(pathLine + filenameLine + '.csv')
-            lineTemps = temp_dfLine['Bead' + beadnumstr + '.seq:Line 1 [C]:mean:vert'].values
-            beads[i - 1].add_line_profile(lineTemps)
-
-    return beads
-
-
 def extract_tdms_layers(path,NumPts):
 
     Layers = []
@@ -542,19 +628,31 @@ def extract_tdms_layers(path,NumPts):
             tempRobData[channel.name] = channel[:]
 
         for channel in WeldGroup.channels():
-            tempWeldData[channel.name] = channel[:]
+            tempWeldData[channel.name] = np.array(channel[:])
 
         for channel in LEMGroup.channels():
-            tempLEMData[channel.name] = channel[:]
+            tempLEMData[channel.name] = np.array(channel[:])
+
+        del tempWeldData['Motor Current']
 
         LEMtime = get_LEMtime(tempLEMData)
-        tempLEMData['LEM Time'] = LEMtime
+        tempLEMData['LEM Time'] = np.array(LEMtime)
         layerTime = allLayerTimes['Layer'+ beadnumstr]
 
         Layers.append(Layer(i,tempLEMData,tempWeldData,tempRobData,layerTime))
 
     return Layers
 
+
+# def find_time_idx(time, startTime,endTime):
+#
+#     diff = abs(time - startTime)
+#     startIdx = np.where(diff == min(diff))[0][0]
+#
+#     diffEnd = abs(time - endTime)
+#     endIdx = np.where(diffEnd == min(diffEnd))[0][0]
+#
+#     return startIdx,endIdx
 
 # def standardize_data(X):
 #
@@ -566,89 +664,4 @@ def extract_tdms_layers(path,NumPts):
 #         X[columnName] = normFeature
 #
 #     return X
-
-
-def normalize_data(X):
-
-    for (columnName, columnData) in X.iteritems():
-        featureVector = columnData.values
-        featureMax = featureVector.max()
-        featureMin = featureVector.min()
-        normFeature = (featureVector - featureMin)/(featureMax - featureMin)
-        X[columnName] = normFeature
-
-    return X
-
-
-def find_time_idx(time, startTime,endTime):
-
-    diff = abs(time - startTime)
-    startIdx = np.where(diff == min(diff))[0][0]
-
-    diffEnd = abs(time - endTime)
-    endIdx = np.where(diffEnd == min(diffEnd))[0][0]
-
-    return startIdx,endIdx
-
-
-def trim_times(startTime,endTime,data):
-
-    time = data['Time']
-    startIdx, endIdx = find_time_idx(time,startTime,endTime)
-
-    del time
-
-    for key in data:
-        series = data[key]
-        data[key] = series[startIdx:endIdx]
-
-    return data
-
-
-def extract_labview(path,NumPts):
-
-    beads = []
-
-    for i in range(1, NumPts+1):
-
-        TempRobData = {}
-        TempWeldData = {}
-        TempLEMData = {}
-        Audio = {}
-
-        beadnumstr = beadNumber(i)
-        beadPath = path+'\\LabVIEW\\Bead' + beadnumstr
-
-        temp_file = TdmsFile.read(beadPath + '\\Bead01.tdms')
-
-        RobGroup = temp_file["Robot Data"]
-        WeldGroup = temp_file["Welding Data"]
-        LEMGroup = temp_file['LEM Box']
-
-        for channel in RobGroup.channels():
-            TempRobData[channel.name] = channel[:]
-
-        for channel in LEMGroup.channels():
-            TempLEMData[channel.name] = channel[:]
-
-        for channel in WeldGroup.channels():
-            TempWeldData[channel.name] = channel[:]
-
-        LEMtime = get_LEMtime(TempLEMData)
-        TempLEMData['Time'] = LEMtime
-
-        finalTime = TempRobData['Time'][-1]
-
-        #Get Audio
-        tempAudio, SR = none = librosa.load(beadPath + '\\Bead01.wav')
-        tempAudio = af.clipEndAudio(tempAudio)
-        time = af.add_time(tempAudio,finalTime)
-        Audio['Time'] = time
-        del time
-        Audio['Audio'] = tempAudio
-        beads.append(Bead(i, TempLEMData, TempWeldData, TempRobData, Audio))
-        del tempAudio
-
-    return beads
-
 
